@@ -133,6 +133,8 @@ _COLUMNS = (
     "ALTER TABLE memory ADD COLUMN IF NOT EXISTS kind VARCHAR(16) NOT NULL DEFAULT 'event'",
     "ALTER TABLE relationship ADD COLUMN IF NOT EXISTS met_at TIMESTAMP NULL",
     "ALTER TABLE message ADD COLUMN IF NOT EXISTS thought TEXT NULL",
+    "UPDATE thread SET channel = 'inside-tables' WHERE channel = 'high-tops'",
+    "UPDATE message SET channel = 'inside-tables' WHERE channel = 'high-tops'",
 )
 
 

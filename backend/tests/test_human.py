@@ -245,7 +245,7 @@ class _Wrap:
         self.d.llm = Llm()
 
     def thread(self, lines, span=None):
-        t = ThreadState(id=1, channel="high-tops", kind="chat", started=NOW, members=[], ever={"p0": None, "p1": None},
+        t = ThreadState(id=1, channel="inside-tables", kind="chat", started=NOW, members=[], ever={"p0": None, "p1": None},
                         max_turns=8, lines=[("speech", s, "hi") for s in lines])
         t.span = span or {"p0": [0, None], "p1": [0, None]}
         return t
@@ -256,11 +256,11 @@ def test_strangers_who_share_a_conversation_are_recorded_even_when_the_summary_f
 
     w = _Wrap(summary=None)
     asyncio.run(wrap_up(w.d, w.thread(["p0", "p1"])))  # two lines: too short to summarize, long enough to meet
-    assert w.deltas == [("p0", "p1", 6, "First met Wednesday Oct 21 at the high-top tables by the front windows")]
+    assert w.deltas == [("p0", "p1", 6, "First met Wednesday Oct 21 at the inside tables by the front windows")]
     assert w.met == [("p0", "p1")]
     assert sorted((p, t) for p, t, _, _ in w.mems) == [
-        ("p0", "Met P1 for the first time at the high-top tables by the front windows."),
-        ("p1", "Met P0 for the first time at the high-top tables by the front windows."),
+        ("p0", "Met P1 for the first time at the inside tables by the front windows."),
+        ("p1", "Met P0 for the first time at the inside tables by the front windows."),
     ]
     assert all(imp == 6 for _, _, imp, _ in w.mems)
 
@@ -291,7 +291,7 @@ def test_summary_that_covers_the_meeting_is_not_duplicated():
     asyncio.run(wrap_up(w.d, w.thread(["p0", "p1", "p0", "p1"])))
     texts = {(p, t) for p, t, _, _ in w.mems}
     assert ("p0", "P1 seems nice and likes hockey.") in texts
-    assert ("p0", "Ask P1 about hockey") in texts and ("p1", "Met P0 for the first time at the high-top tables by the front windows.") in texts
+    assert ("p0", "Ask P1 about hockey") in texts and ("p1", "Met P0 for the first time at the inside tables by the front windows.") in texts
     assert not any(p == "p0" and t.startswith("Met P1") for p, t in texts)  # the summary already covered p0's side
     assert w.mems[0][2] == 6  # a first impression is never minor
     assert w.deltas == [("p0", "p1", 4, "")]  # the summary's relationship stands; no second +6
@@ -341,7 +341,7 @@ def test_scene_carries_state_room_and_own_lines():
     t = _chat(False)
     ctx = build_turn(d, t, p, False).context
     assert "Right now: hoping to catch up with friends" in ctx and "feeling it a little" in ctx
-    assert "The taproom is quiet." in ctx and "Trivia is going at the high-tops." in ctx
+    assert "The taproom is quiet." in ctx and "Trivia is going at the inside tables." in ctx
     assert "P1 just got here and you haven't seen them in 9 days" in ctx
     t.lines = [("speech", "p0", "so anyway"), ("speech", "p1", "yeah")]
     ctx = build_turn(d, t, p, False).context

@@ -407,7 +407,7 @@ def _scene_for(d, t, p):
 def _chat(on_event, tid=1, lines=None, turns=0):
     from app.sim.state import ThreadState
 
-    return ThreadState(id=tid, channel="high-tops", kind="chat", started=NOW, members=["p0", "p1"],
+    return ThreadState(id=tid, channel="inside-tables", kind="chat", started=NOW, members=["p0", "p1"],
                        ever={"p0": None, "p1": None}, max_turns=8, on_event=on_event, lines=lines or [], turns=turns)
 
 

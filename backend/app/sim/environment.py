@@ -108,5 +108,5 @@ def room_line(now: datetime, guests: int) -> str:
     elif g and now < g.start:
         parts.append(f"The {g.team} play the {g.opp} at {g.start.strftime('%-I%p').lower()}; it'll be on the bar TV.")
     if trivia_on(now):
-        parts.append("Trivia is going at the high-tops.")
+        parts.append("Trivia is going at the inside tables.")
     return " ".join(parts)

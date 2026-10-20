@@ -75,7 +75,7 @@ function Room() {
       <Box x={BAR.x} z={BAR.z} w={BAR.w} d={0.15} h={1.3} y={0} color={WOOD_DARK} />
       <Box x={COUNTER.x} z={COUNTER.z} w={COUNTER.w} d={COUNTER.d} h={1.05} color={WOOD_DARK} />
       {STOOLS.map(([x, z]) => <Stool key={x} x={x} z={z} />)}
-      {TABLES["high-tops"].map(([x, z]) => <Table key={`h${x}-${z}`} x={x} z={z} />)}
+      {TABLES["inside-tables"].map(([x, z]) => <Table key={`h${x}-${z}`} x={x} z={z} />)}
       {TABLES.patio.map(([x, z]) => <Table key={`p${x}-${z}`} x={x} z={z} patio />)}
     </group>
   );

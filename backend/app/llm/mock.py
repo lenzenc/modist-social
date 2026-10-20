@@ -92,7 +92,7 @@ class MockLLM:
         elif req.excuse:
             say, action = r.choice(_EXCUSE), "excuse"
         elif req.kind != "order" and r.random() < 0.04:
-            action, target = "move", r.choice(["patio", "high-tops", "bar"])
+            action, target = "move", r.choice(["patio", "inside-tables", "bar"])
         lookup = "who won the Twins game last night" if r.random() < 0.02 else ""
         mood = "annoyed" if req.tension >= 1 else r.choice(["good", "fine", "fine", "meh"])
         return Utterance(say=say, action=action, target=target, lookup=lookup, drink=drink, mood=mood)

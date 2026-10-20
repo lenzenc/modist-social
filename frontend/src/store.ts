@@ -119,7 +119,7 @@ export const useStore = create<State>((set, get) => ({
   loadLiveThreads: async () => {
     // The chat view only tracks the open channel; the floor view needs every live conversation.
     const feeds = await Promise.all(
-      ["bar", "high-tops", "patio", "ordering", "staff"].map((c) => api<Feed>(`/api/channels/${c}/feed`)),
+      ["bar", "inside-tables", "patio", "ordering", "staff"].map((c) => api<Feed>(`/api/channels/${c}/feed`)),
     );
     const live = feeds.flatMap((f) => f.threads).filter((t) => !t.ended_at);
     set((s) => ({ threads: { ...Object.fromEntries(live.map((t) => [t.id, t])), ...s.threads } }));

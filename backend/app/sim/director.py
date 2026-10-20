@@ -999,7 +999,7 @@ class Director:
                         human.nudge_mood(q, 0.15 if ours else -0.15)
         if environment.trivia_on(now) and f"{day}-trivia" not in self._env_flags:
             self._env_flags.add(f"{day}-trivia")
-            await self.post("high-tops", "🎲 Trivia is starting at the high-tops.", kind="system")
+            await self.post("inside-tables", "🎲 Trivia is starting at the inside tables.", kind="system")
 
     async def update_shift(self, now: datetime) -> None:
         pair = on_shift(now) if is_open(now) else None

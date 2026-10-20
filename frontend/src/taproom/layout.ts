@@ -14,11 +14,11 @@ export const PATIO = { x: 5.45, z: 10.75, w: 9.4, d: 3.2 };
 export const DOORS: Vec2[] = [[1.5, ROOM.d], [17.4, ROOM.d]];
 export const CENTER: Vec2 = [10.2, 7];
 
-export const STOOLS: Vec2[] = Array.from({ length: 14 }, (_, i) => [2.7 + i * 0.93, 3.5]);
+export const STOOLS: Vec2[] = Array.from({ length: 20 }, (_, i) => [2.5 + i * 0.63, 3.5]);
 const BARTENDER_SPOTS: Vec2[] = [[5.5, 1.35], [8.5, 1.35], [11.5, 1.35]];
 
 export const TABLES: Record<string, Vec2[]> = {
-  "high-tops": [3.7, 7.1, 10.1, 13.2].flatMap((x) => [4.8, 6.9].map((z): Vec2 => [x, z])).sort((a, b) => a[1] - b[1] || a[0] - b[0]),
+  "inside-tables": [3.7, 7.1, 10.1, 13.2].flatMap((x) => [4.8, 6.9].map((z): Vec2 => [x, z])).sort((a, b) => a[1] - b[1] || a[0] - b[0]),
   patio: [
     [7.2, 11.6], [12.8, 11.6],
     [7.2, 13.1], [12.8, 13.1],
@@ -30,7 +30,7 @@ const SEATS: Vec2[] = [[-0.5, -0.9], [0.5, -0.9], [-0.5, 0.9], [0.5, 0.9]];
 const QUEUE: Vec2[] = Array.from({ length: 9 }, (_, i) => [15.4 + (i % 3) * 0.65, 3.7 + Math.floor(i / 3) * 0.7]);
 // Guests with no seat stand along the edge of their area.
 const STANDING: Record<string, (i: number) => Vec2> = {
-  "high-tops": (i) => [2.5 + (i % 12) * 1.3, 8.9 + Math.floor(i / 12) * 0.7],
+  "inside-tables": (i) => [2.5 + (i % 12) * 1.3, 8.9 + Math.floor(i / 12) * 0.7],
   patio: (i) => [9.9 + ((i % 3) - 1) * 0.7, 12.3 + Math.floor(i / 3) * 0.6],
   bar: (i) => [2.6 + (i % 10) * 1.2, 4.3],
 };

@@ -2,27 +2,27 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
-LOCATIONS = ["bar", "high-tops", "patio"]
-CHANNELS = ["door", "ordering", "bar", "high-tops", "patio", "staff"]
+LOCATIONS = ["bar", "inside-tables", "patio"]
+CHANNELS = ["door", "ordering", "bar", "inside-tables", "patio", "staff"]
 CHANNEL_DESC = {
     "door": "Arrivals, departures and shift changes",
     "ordering": "Walk-up orders at the end of the bar",
     "bar": "Sitting at the long oak bar: seated orders and conversations",
-    "high-tops": "High-top tables by the windows",
+    "inside-tables": "Inside tables by the windows",
     "patio": "Heated patio and fire pits",
     "staff": "Behind the bar, bartenders only",
 }
 LOC_DESC = {
     "ordering": "end of the bar, waiting to order",
     "bar": "long oak bar",
-    "high-tops": "high-top tables by the front windows",
+    "inside-tables": "inside tables by the front windows",
     "patio": "heated patio by the fire pits",
     "staff": "back of the bar between orders",
 }
 MAX_GROUP = 4
 MAX_GROUP_BAR = 5  # a bar chat can hold guests plus one or both bartenders
-BAR_STOOLS = 14
-TABLES = {"high-tops": 8, "patio": 4}  # tables per area; each seats a full group
+BAR_STOOLS = 20
+TABLES = {"inside-tables": 8, "patio": 4}  # tables per area; each seats a full group
 TABLE_SEATS = MAX_GROUP
 
 
@@ -114,7 +114,7 @@ class ThreadState:
     on_event: bool = False  # this chat is mostly about the God Mode event
     tension: float = 0.0  # how heated opposing sides in an on-event chat have got
     stepped_in: bool = False  # a bartender has already calmed this chat down
-    table: int | None = None  # the table this chat sits at (high-tops and patio only)
+    table: int | None = None  # the table this chat sits at (inside-tables and patio only)
     excuse: dict[str, str] = field(default_factory=dict)  # who should bow out this turn, and why
     span: dict[str, list] = field(default_factory=dict)  # pid -> [first line index, last line index or None]
 

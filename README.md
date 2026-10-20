@@ -31,7 +31,7 @@ Postgres data lives in a Docker volume, so relationships and memories survive re
 - **#door**: arrivals, departures, shift changes, last call, and the daily "around town" news.
 - **#ordering**: walk-up orders at the end of the bar, one short card per drink.
 - **#bar**: guests sitting on the 14 stools. They order from their seat, chat with the bartenders and talk to their stool neighbours.
-- **#high-tops, #patio**: each conversation group is a thread card with a live preview and typing indicator. Click one for the full transcript.
+- **#inside-tables, #patio**: each conversation group is a thread card with a live preview and typing indicator. Click one for the full transcript.
 - **#staff**: bartenders talking shop when the bar is quiet.
 - Click any name or avatar for a profile: personality, relationships (familiarity and affinity bars), and what they remember.
 - Header: pause/resume, speed (5x to 240x) and crowd (Quiet / Normal / Busy / Packed). Footer: guests, calls, tokens, prompt-cache hit rate, web searches, and spend against the daily budget.
@@ -97,7 +97,7 @@ A deterministic Python **director** runs the world. The LLM is only asked for on
 - **Bartenders**: five of them, always working in pairs, on a fixed weekly roster (`backend/app/sim/schedule.py`).
 - **Arrivals**: each patron has a visit frequency, preferred days and hours (`backend/app/seed/patrons.yaml`). Friends tend to follow each other in. Visit rates are scaled up (`ARRIVAL_BOOST`) so a 40-person town feels busy.
 - **At the bar**: guests either step up to order (in #ordering) or take a stool (14 of them, in #bar), depending on their personality and who's around. Seated guests may stay to chat with one or both bartenders (who get pulled away to pour now and then), and strangers on neighbouring stools strike up conversations with each other.
-- **Drinks and sales**: every drink is $8, paid by card. Sunday to Wednesday until 6pm, a random 15 of the 52 drinks are half price (the same 15 all day, new ones each day). Each guest wants about 1 to 3 drinks a visit, sometimes more. The bartender asks guests on a stool if they'd like another; everyone else walks up to the bar, then rejoins their group. Some guests pay per drink (one transaction each); others open a tab and close it out before leaving. Tips are 0%, 18%, 20% or 25%, depending on the guest's habit (`pay` and `tipper` in `patrons.yaml`).
+- **Drinks and sales**: every drink is $8, paid by card. Sunday to Wednesday until 6pm, a random 4 of the 52 drinks are half price (the same 4 all day, new ones each day). Each guest wants about 1 to 3 drinks a visit, sometimes more. The bartender asks guests on a stool if they'd like another; everyone else walks up to the bar, then rejoins their group. Some guests pay per drink (one transaction each); others open a tab and close it out before leaving. Tips are 0%, 18%, 20% or 25%, depending on the guest's habit (`pay` and `tipper` in `patrons.yaml`).
 - **Conversations**: each group is its own async task with randomized pauses between turns, so many conversations run side by side. People join, wander off, wave someone over, or head out. After finishing, a pair has a cooldown before talking again.
 - **Web access**: once per sim day a "news desk" search pulls local headlines for `BREWERY_CITY`, shared with everyone. A patron can also ask to look something up mid-conversation (capped per sim hour).
 
