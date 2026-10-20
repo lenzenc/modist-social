@@ -1,0 +1,52 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: modist
+      POSTGRES_PASSWORD: modist
+      POSTGRES_DB: modist
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U modist -d modist"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    profiles: [full]
+    build: ./backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://modist:modist@db:5432/modist
+      # Interpolated from .env or the shell, so `LLM_MODE=mock docker compose up` works too.
+      LLM_MODE: ${LLM_MODE:-live}
+      SIM_SPEED: ${SIM_SPEED:-15}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+    command: ["uv", "run", "--no-sync", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "app"]
+
+  frontend:
+    profiles: [full]
+    build: ./frontend
+    environment:
+      BACKEND_URL: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+
+volumes:
+  pgdata:

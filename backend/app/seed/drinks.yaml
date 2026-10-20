@@ -1,0 +1,53 @@
+# The Modist Social board. Names are exactly as supplied; style/ABV/notes come from modistbrewing.com.
+- {name: "Avalanche Splash", style: "Tropical Fruited Sour", abv: 5.5, note: "Tart barley-based sour layered with pineapple, tangerine, lemon and passion fruit"}
+- {name: "Fallforge", style: "Fresh Hop Pilsner", abv: 5.2, note: "Crisp pilsner with El Dorado, Idaho 7 and fresh Centennial hop punch"}
+- {name: "Doomed Moon", style: "Red Rice Lager", abv: 5.5, note: "Red barley and brown rice lager, Simcoe-hopped, rested in oak foeders"}
+- {name: "Breffix: 24hr Breakfast Stout", style: "Breakfast Stout", abv: 8, note: "Oaty roasty stout with coffee, maple, brown sugar and vanilla sweetness"}
+- {name: "A Modist Classic: Altbier", style: "Altbier", abv: 5.8, note: "Malty amber German ale with Munich, Vienna and roasted malts, noble-style hops"}
+- {name: "Distant Visions", style: "Hazy Double IPA", abv: 8, note: "Tropical hazy double with mango, honey, vanilla bean and Mosaic and Sabro hops"}
+- {name: "Skoloft", style: "Consolation Lager", abv: 5, note: "Easygoing lager made as a cheer-up drink for let-down Minnesota sports fans"}
+- {name: "First Call Pumpkin Spice Latte", style: "Cold Press Coffee Lager with Pumpkin Spice", abv: 6.5, note: "Creamy lager with cold brew coffee, autumn spices, vanilla and milk sugar"}
+- {name: "pHresh", style: "Lil Sour Ale", abv: 4.5, note: "Light, easy-drinking small sour with a gentle tangy finish"}
+- {name: "Ghost Vision Citra Dolcita", style: "Hazy IPA", abv: 6, note: "Soft, oat-and-wheat hazy double dry hopped with Citra and Dolcita"}
+- {name: "The Time Is Nigh", style: "Oak-Aged Festbier", abv: 5.2, note: "Malty Pilsner, Vienna and Munich festbier with Bravo hops, aged in oak"}
+- {name: "Pickle Beer", style: "Pickle Lager", abv: 5, note: "Pilsner-malt lager brewed with deli pickle brine for a briny tang"}
+- {name: "Tangerine Dream Slushy", style: "Slushy Seltzer", abv: 8, note: "Frozen seltzer-based slushy flavored with tangerine and vanilla"}
+- {name: "Piña Colada Slushy", style: "Seltzer Slushy", abv: 8, note: "Frozen slushy blending pineapple and coconut into a tropical piña colada."}
+- {name: "SKRRT! MK1 Rabbit", style: "West Coast Double IPA", abv: null, note: "Heavily hopped double IPA using Simcoe, Kush and Centennial over pilsner malt."}
+- {name: "A Modist Classic: Landbier", style: "Unfiltered Amber Lager", abv: 5.5, note: "Franconian-style amber lager with Vienna, rye and kernza grain, lightly hopped."}
+- {name: "Last of the Best Vista", style: "Double Dry Hopped Czech-style Pilsner", abv: 5, note: "Crisp, refreshing pilsner hopped with Saaz and Vista, double dry hopped."}
+- {name: "Blueberry Blitz", style: "Hard Seltzer", abv: 5, note: "Seltzer flavored with real blueberry and lemon juices."}
+- {name: "Skull Hard Seltzer Pineapple Key Lime Sea Salt", style: "Hard Seltzer", abv: 5, note: "Tart key lime and sweet pineapple puree, finished with a pinch of salt."}
+- {name: "Skull Hard Seltzer Blueberry Lemon", style: "Hard Seltzer", abv: 5, note: "Seltzer made with blueberry and lemon juice for a fruity, tangy sip."}
+- {name: "De-Pale The Ale", style: "Pale Ale", abv: 5, note: "Pale ale with Fuggle hops and a Idaho 7 Cryo dry hop."}
+- {name: "Watermeloncholy", style: "Watermelon Gose", abv: 5.2, note: "Salty-tart gose with fresh watermelon, coriander and Himalayan salt on pilsner and wheat."}
+- {name: "Ghost Vision Mosaic Cashmere", style: "Hazy IPA", abv: 6, note: "Soft, oaty hazy IPA double dry hopped with Mosaic and Cashmere."}
+- {name: "Mega Liquid El Dorado Crystals", style: "Hazy Double IPA", abv: 8, note: "Big, oat-and-wheat hazy double IPA double dry hopped with El Dorado."}
+- {name: "Solvista", style: "Wheat Ale", abv: 5, note: "Wheat ale brightened with blood orange and calamansi citrus."}
+- {name: "Pineapple Dreamyard", style: "Fruited Hazy IPA", abv: 7.1, note: "Hazy IPA loaded with pineapple, dry hopped with Citra and Sultana."}
+- {name: "Fang & Bone", style: "Foeder-aged New Zealand-style pilsner", abv: 5.3, note: "Crisp pilsner rested in oak, with Wakatu and Nelson Sauvin hop fruitiness"}
+- {name: "Monsoon Strike", style: "Tropical fruited sour", abv: 5.5, note: "Tart sour layered with tangerine, key lime and raspberry"}
+- {name: "TEN", style: "Triple Dry Hopped Hazy IPA", abv: 7.5, note: "Juicy, hop-heavy haze using Dolcita, Nectaron and Cryo Mosaic"}
+- {name: "Modist X", style: "Bourbon Barrel-Aged German Chocolate Cake Imperial Stout", abv: 16.66, note: "Dessert-like stout with coconut, pecan, cocoa and vanilla, long bourbon barrel aging"}
+- {name: "MELT Calamansi Tangerine", style: "THC sparkling beverage", abv: null, note: "Bright citrus soda of calamansi and tangerine with 10 mg hemp THC"}
+- {name: "TINT Raspberry Lemon Iced Tea", style: "THC seltzer", abv: null, note: "Black tea seltzer with raspberry and lemon, 10 mg THC"}
+- {name: "TINT Blackberry Lime", style: "THC seltzer", abv: null, note: "Sparkling seltzer pairing blackberry with lime, 10 mg THC"}
+- {name: "Half MELT Ginger Lemon Lime", style: "THC sparkling beverage", abv: null, note: "Zesty ginger and citrus soda, lighter 5 mg THC dose, boosted flavor"}
+- {name: "Half MELT Blood Orange Raspberry Vanilla", style: "THC sparkling beverage", abv: null, note: "Blood orange and raspberry with vanilla softness, 5 mg THC"}
+- {name: "Ghost Vision Simcoe Superdelic", style: "Hazy IPA", abv: 6, note: "Soft, oaty hazy double dry hopped with Simcoe and Superdelic"}
+- {name: "Supra Deluxe Sea Salt Lime", style: "Japanese-style premium lager", abv: 5, note: "Clean rice lager with Sorachi Ace hops, a pinch of sea salt and lime"}
+- {name: "Gravity Lens", style: "Oak-Aged Pale Lager", abv: 4.8, note: "Rye-tinged pale lager aged in oak, hopped with Amira, Pacific Jade, Cryo Idaho 7"}
+- {name: "Heated Rivalry", style: "Hazy Triple IPA", abv: 10, note: "Big, soft hazy triple IPA with experimental HBC hops and Cryo El Dorado"}
+- {name: "Double Ghost Vision Citra Riwaka", style: "Hazy Double IPA", abv: 8, note: "Oat-soft, double dry-hopped with Citra and Riwaka for juicy tropical hop character."}
+- {name: "Work Krush", style: "Cold IPA", abv: 4.7, note: "Crisp, light-bodied lager-style base with corn and rice, highlighting Krush hops."}
+- {name: "Springforge", style: "Double Dry Hopped Pilsner", abv: 5.2, note: "Crisp pilsner with wheat, loaded with El Dorado, Idaho 7 and Mosaic Cryo hops."}
+- {name: "Deepest Depths", style: "Barrel-Aged Imperial Stout", abv: 13.5, note: "Rum-barrel aged over four years; cocoa, jammy red wine, berries, citrus and oak."}
+- {name: "Taproom Only Calamansi Raspberry Mango Pineapple", style: "Hard Seltzer", abv: 5, note: "Bright fruity seltzer blending tart calamansi, raspberry, mango and pineapple."}
+- {name: "Last Of The Best: Mosaic", style: "Czech-Style Pilsner", abv: 5, note: "Snappy pilsner pairing Saaz with Mosaic hops, dry hopped twice."}
+- {name: "Peanut Butter Second Breffix", style: "Imperial Breakfast Stout", abv: 10, note: "Rich oat stout with peanut butter, coffee and maple syrup."}
+- {name: "Folklor", style: "Oak-Aged Bock", abv: 6.3, note: "Malty German-style bock with caramel and toasted malt, rounded by oak foeder aging."}
+- {name: "Stave Robber Special Reserve", style: "Bourbon Barrel-Aged Imperial Stout", abv: 16.5, note: "Long bourbon-barrel aging with pistachio, toasted coconut and Congo vanilla."}
+- {name: "Bourbon Barrel-Aged Ice Cream Grin", style: "Bourbon Barrel-Aged Imperial Stout", abv: 15, note: "Dessert-like stout with mint chocolate chip, vanilla and bourbon barrel depth."}
+- {name: "On Droning Wings", style: "Farmhouse Ale", abv: 5.5, note: "Blend of brett honey beers aged on chamomile and elderflower."}
+- {name: "Dreamyard", style: "Hazy IPA", abv: 7.1, note: "Soft, juicy hazy IPA with hop-forward aroma."}
+- {name: "False Pattern", style: "Hazy Pale Ale", abv: 5.5, note: "Easy-drinking hazy pale ale with soft body and gentle hop fruitiness."}

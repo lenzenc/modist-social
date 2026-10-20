@@ -1,0 +1,1290 @@
+import asyncio
+import logging
+import math
+import random
+import time
+from datetime import datetime, timedelta
+
+from sqlalchemy import delete, func, select, update
+
+from app.agents import agent as agent_mod
+from app.agents.memory import reflect_day, wrap_up
+from app.agents.prompts import persona_prompt, world_prompt
+from app.bus import bus
+from app.config import settings
+from app.db.models import Message, NewsItem, Payment, Person, SaleItem, Session, SimState, Thread, get_state, set_state
+from app.llm.usage import usage
+from app.seed.loader import color_for
+from app.sim import environment, human, newcomers
+from app.sim import god as godmode
+from app.sim import menu, sales
+from app.sim.clock import DEFAULT_START, SimClock, is_open, launch_time, open_close
+from app.sim.schedule import ARRIVAL_BOOST, arrival_rate, on_shift
+from app.sim.social import Social
+from app.sim.state import (
+    BAR_STOOLS, LOC_DESC, LOCATIONS, MAX_GROUP, MAX_GROUP_BAR, TABLES, TABLE_SEATS, PersonState, ThreadState, display_name, short_name,
+)
+
+log = logging.getLogger("director")
+
+LAST_CALL_MIN = 30
+TICK = 0.5  # real seconds
+SOCIAL_EVERY = 2.0  # real seconds
+LINE_BUDGET = 60.0  # sim seconds the pace governor lets one model call cost, at most
+CROWD_LEVELS = (0.6, 1.0, 1.6, 2.5)
+GOD_ROSTER = 70  # most people described to the model when it scores a God Mode event
+NEWCOMER_DAYS = [2, 3, 4, 5, 6]  # when walk-ins are most likely to appear (Wed-Sun)
+NEWCOMER_WINDOW = [16, 21]
+# arrival_rate boosts visits for the regulars and counts a bit more than the window's hours; this brings the walk-in
+# count back to the per-week figure in settings, over the hours the bar is open before last call.
+NEWCOMER_SCALE = ARRIVAL_BOOST * 1.2
+PLUS_ONE_CHANCE = 0.2  # a walk-in who comes in with someone already here
+
+
+def _names(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _prob(per_minute: float, minutes: float) -> float:
+    return 1 - (1 - min(per_minute, 0.99)) ** max(minutes, 0.0)
+
+
+class Director:
+    def __init__(self, llm) -> None:
+        self.llm = llm
+        self.clock = SimClock(speed=settings.sim_speed)
+        self.social = Social()
+        self.people: dict[str, PersonState] = {}
+        self.threads: dict[int, ThreadState] = {}
+        self.news: list[str] = []
+        self.rng = random.Random()
+        self.world_text = world_prompt(settings.brewery_city)
+        self.persona_text: dict[str, str] = {}
+        self.tasks: set[asyncio.Task] = set()
+        self.shift: tuple[str, str] | None = None
+        self.news_day = ""
+        self.last_call_day = ""
+        self.opened_day = ""
+        self.closed_day = ""
+        self.lookups: list[datetime] = []
+        self.cooldown: dict[tuple[str, str], datetime] = {}
+        self.visits: dict[str, dict] = {}  # pid -> {"n": visits so far, "last": ISO time of the latest}
+        self.lives: dict[str, str] = {}  # pid -> how their life stands lately, from the nightly reflection
+        self.generating = False  # a newcomer is being made right now
+        self._env_prev: datetime | None = None
+        self._env_flags: set[str] = set()
+        self.budget_paused = False
+        self.banner = ""
+        self.crowd = 1.0  # arrival/chat multiplier chosen in the header
+        self.crowd_days: dict[str, float] = {}  # busiest crowd setting used on each sim day
+        self.god: dict | None = None  # God Mode event: see sim.god.build
+        self._assessed: tuple[str, dict] | None = None  # the last event scored by assess_god, so setting it is free
+        self.latency = 0.0  # moving average of model call time, real seconds
+        self._last_cap = 0.0
+        self._last_tick_sim: datetime | None = None
+        self._last_social_sim: datetime | None = None
+        self._last_social_real = 0.0
+        self._last_clock_pub = 0.0
+        self._last_stats_pub = 0.0
+        self._last_save = 0.0
+
+    # ---------------------------------------------------------------- setup
+
+    async def load(self) -> None:
+        async with Session() as s:
+            for p in (await s.scalars(select(Person))).all():
+                self.people[p.id] = PersonState(
+                    id=p.id, name=p.name, short=short_name(p.name), display=display_name(p.name),
+                    role=p.role, pronouns=p.pronouns, color=p.color, persona=p.persona,
+                )
+            saved = await get_state(s, "clock")
+            saved_god = await get_state(s, "god")
+            self.visits = await get_state(s, "visits", {}) or {}
+            self.lives = await get_state(s, "lives", {}) or {}
+        for p in self.people.values():
+            self.persona_text[p.id] = persona_prompt(p, self.lives.get(p.id, ""))
+        await self.social.load()
+        if saved:
+            was = datetime.fromisoformat(saved["sim_now"])
+            start = launch_time(was)
+            if start != was:
+                log.info("bar is closed at %s; skipping ahead to %s", was, start)
+            self.clock = SimClock(start=start, speed=saved.get("speed", settings.sim_speed))
+            self.crowd = saved.get("crowd", 1.0)
+            self.crowd_days = saved.get("crowd_days", {})
+            await self.save_clock()
+        self.god = godmode.normalize(saved_god, self.clock.now())
+        today = self.clock.now().strftime("%Y-%m-%d")
+        async with Session() as s:
+            # A crash or restart can strand threads mid-conversation; nobody is in the room after a restart.
+            await s.execute(update(Thread).where(Thread.ended_at.is_(None)).values(ended_at=self.clock.now()))
+            # Likewise nobody is still at the bar to close a tab, so settle any left open.
+            for pay in (await s.scalars(select(Payment).where(Payment.status == "open"))).all():
+                self._finalize(pay, self.people.get(pay.person_id), self.clock.now())
+            await s.commit()
+            rows = (await s.scalars(select(NewsItem).where(NewsItem.sim_day == today))).all()
+        if rows:
+            self.news, self.news_day = [r.text for r in rows], today
+        log.info("loaded %d people, sim time %s", len(self.people), self.clock.now())
+
+    def spawn(self, coro) -> asyncio.Task:
+        task = asyncio.create_task(coro)
+        self.tasks.add(task)
+        task.add_done_callback(self._task_done)
+        return task
+
+    def _task_done(self, task: asyncio.Task) -> None:
+        self.tasks.discard(task)
+        if not task.cancelled() and task.exception():
+            log.error("task failed", exc_info=task.exception())
+
+    async def stop(self) -> None:
+        for t in list(self.tasks):
+            t.cancel()
+        await asyncio.gather(*self.tasks, return_exceptions=True)
+        await self.save_clock()
+
+    def resolve(self, name: str) -> str | None:
+        n = name.strip().lower()
+        for p in self.people.values():
+            if n in (p.short.lower(), p.display.lower(), p.name.lower().replace('"', "")):
+                return p.id
+        return None
+
+    # ---------------------------------------------------------------- publishing
+
+    def patrons(self):
+        return [p for p in self.people.values() if not p.is_bartender]
+
+    def person_view(self, p: PersonState) -> dict:
+        """What the API and the websocket tell the UI about one person."""
+        return {
+            "id": p.id, "name": p.name, "short": p.short, "display": p.display, "role": p.role,
+            "pronouns": p.pronouns, "color": p.color, "job": p.persona.get("job", ""),
+            "present": p.present, "location": p.location, "thread_id": p.thread_id, "seated": p.seated, "drink": p.drink,
+            "stool": p.stool, "table": p.table,
+            "visits": self.visits.get(p.id, {}).get("n", 0), "walk_in": bool(p.persona.get("walkin")),
+        }
+
+    async def add_person(self, name: str, pronouns: str, persona: dict) -> PersonState:
+        """Bring a brand-new person into the world: saved first (everything else points at their row), then live."""
+        short, display = short_name(name), display_name(name)
+        if any(q.short.lower() == short.lower() or q.display.lower() == display.lower() for q in self.people.values()):
+            raise ValueError(f"someone here is already called {short} or {display}")
+        n = 1 + max((int(i[1:]) for i in self.people if i[0] == "n" and i[1:].isdigit()), default=0)
+        pid, color = f"n{n:03d}", color_for(len(self.people))
+        async with Session() as s:
+            s.add(Person(id=pid, name=name, role="patron", pronouns=pronouns, color=color, persona=persona))
+            await s.commit()
+        p = PersonState(id=pid, name=name, short=short, display=display, role="patron", pronouns=pronouns,
+                        color=color, persona=persona)
+        self.people[pid] = p
+        self.persona_text[pid] = persona_prompt(p, "")
+        bus.publish({"type": "person", "person": self.person_view(p)})
+        return p
+
+    def presence(self) -> list[dict]:
+        return [
+            {"id": p.id, "location": p.location, "thread_id": p.thread_id, "seated": p.seated, "drink": p.drink,
+             "stool": p.stool, "table": p.table}
+            for p in self.people.values() if p.present
+        ]
+
+    def publish_presence(self) -> None:
+        bus.publish({"type": "presence", "people": self.presence()})
+
+    def publish_relationships(self, ids: list[str]) -> None:
+        bus.publish({"type": "relationships", "people": ids})
+
+    def clock_event(self) -> dict:
+        now = self.clock.now()
+        return {
+            "type": "clock", "sim_now": now.isoformat(), "speed": self.clock.speed,
+            "effective_speed": round(self.clock.effective, 1), "crowd_level": self.crowd,
+            "god": self.god_view(),
+            "paused": self.clock.paused, "open": is_open(now),
+            "on_shift": [b for b in (self.shift or ())], "budget_paused": self.budget_paused,
+            "crowd": sum(1 for p in self.patrons() if p.present),
+        }
+
+    def god_view(self) -> dict | None:
+        g = self.god
+        if not g:
+            return None
+        now = self.clock.now()
+        return {
+            "text": g["text"], "reach": g["reach"], "divisiveness": g["divisiveness"], "sides": g["sides"],
+            "reason": g["reason"], "heat": round(godmode.heat(g, now), 3), "fade": round(godmode.fade(g, now), 3),
+        }
+
+    def thread_event(self, t: ThreadState, ended: datetime | None = None) -> dict:
+        last = next(((sid, text) for k, sid, text in reversed(t.lines) if k == "speech"), None)
+        return {
+            "type": "thread",
+            "thread": {
+                "id": t.id, "channel": t.channel, "kind": t.kind, "started_at": t.started.isoformat(),
+                "ended_at": ended.isoformat() if ended else None, "participants": list(t.ever),
+                "root_text": self._root_text(t), "count": len(t.lines), "table": t.table,
+                "last": {"speaker_id": last[0], "text": last[1]} if last else None,
+            },
+        }
+
+    def _root_text(self, t: ThreadState) -> str:
+        people = [self.people[m] for m in t.ever if m in self.people]
+        if t.kind == "order":
+            guest = next((p for p in people if not p.is_bartender), people[0])
+            if t.again:
+                return f"{guest.short} orders another round"
+            return f"{guest.short} takes a seat at the bar" if t.seated else f"{guest.short} steps up to the bar"
+        guests, bts = [p.short for p in people if not p.is_bartender], [p.short for p in people if p.is_bartender]
+        if t.kind == "chat" and t.channel == "bar" and guests and bts:
+            return f"{_names(guests)} chatting with {_names(bts)} across the bar"
+        names = [p.short for p in people]
+        if t.kind == "staff":
+            return f"{' and '.join(names)} catch up behind the bar"
+        head = ", ".join(names[:-1]) + (" and " if len(names) > 1 else "") + names[-1]
+        return f"{head} {'are' if len(names) > 1 else 'is'} chatting"
+
+    # ---------------------------------------------------------------- messages & threads
+
+    async def post(self, channel: str, text: str, speaker: str | None = None, kind: str = "speech",
+                   thread: ThreadState | None = None, thought: str | None = None) -> None:
+        ts = self.clock.now()
+        async with Session() as s:
+            m = Message(thread_id=thread.id if thread else None, channel=channel, speaker_id=speaker,
+                        kind=kind, text=text, sim_ts=ts, thought=thought or None)
+            s.add(m)
+            await s.commit()
+        if thread:
+            thread.lines.append((kind, speaker or "", text))
+        bus.publish({"type": "message", "message": {
+            "id": m.id, "thread_id": m.thread_id, "channel": channel, "speaker_id": speaker,
+            "kind": kind, "text": text, "sim_ts": ts.isoformat(),
+        }})
+        if thread:
+            bus.publish(self.thread_event(thread))
+
+    async def open_thread(self, channel: str, kind: str, members: list[str], max_turns: int,
+                          seated: bool = False, again: bool = False, ask: bool = False) -> ThreadState:
+        now = self.clock.now()
+        async with Session() as s:
+            row = Thread(channel=channel, kind=kind, started_at=now, participants=list(members))
+            s.add(row)
+            await s.commit()
+        t = ThreadState(id=row.id, channel=channel, kind=kind, started=now, members=list(members),
+                        ever=dict.fromkeys(members), max_turns=max_turns, seated=seated, again=again, ask=ask)
+        if self.god and kind == "chat":
+            self.roll_event(t)
+        t.span = {m: [0, None] for m in members}
+        for m in members:
+            p = self.people[m]
+            if not p.is_bartender:
+                p.thread_id, p.free_since = t.id, None
+        if kind == "chat" and channel in TABLES:
+            self.seat_group(t)
+        self.threads[t.id] = t
+        bus.publish(self.thread_event(t))
+        self.publish_presence()
+        self.spawn(self.run_thread(t))
+        return t
+
+    def roll_event(self, t: ThreadState) -> None:
+        """Decide whether a chat is about the God Mode event. Fans and the affected join in; the indifferent mostly don't."""
+        now = self.clock.now()
+        guests = [self.people[m] for m in t.members if not self.people[m].is_bartender]
+        cares = any(godmode.stance(self.god, g.id, g.persona) != "shrug" for g in guests)
+        was = t.on_event
+        openness = sum(human.event_interest(g.persona) for g in guests) / len(guests) if guests else 1.0
+        t.on_event = self.rng.random() < godmode.chance(self.god, now) * (1.0 if cares else 0.4) * openness
+        if t.on_event and not was:
+            t.max_turns += godmode.stretch(self.god, now)
+
+    def seat_group(self, t: ThreadState) -> None:
+        """Put a new chat at one table: a member's own table if the group fits there, else the emptiest."""
+        guests = [m for m in t.members if not self.people[m].is_bartender]
+        mine = {self.people[m].table for m in guests} - {None}
+        fits = [i for i in mine if len([q for q in self.table_occupants(t.channel, i) if q.id not in guests]) + len(guests) <= TABLE_SEATS]
+        t.table = fits[0] if fits else self.pick_table(t.channel, guests)
+        for m in guests:
+            self.people[m].table = t.table
+
+    async def close_thread(self, t: ThreadState) -> None:
+        if self.threads.pop(t.id, None) is None:
+            return
+        t.closing = True
+        now = self.clock.now()
+        for a in t.members:
+            for b in t.members:
+                if a < b:
+                    self.cooldown[(a, b)] = now
+        for m in list(t.members):
+            self._release(t, m)
+        async with Session() as s:
+            row = await s.get(Thread, t.id)
+            if row:
+                row.ended_at, row.participants = now, list(t.ever)
+                await s.commit()
+        bus.publish(self.thread_event(t, ended=now))
+        self.publish_presence()
+        self.spawn(wrap_up(self, t))
+
+    def _release(self, t: ThreadState, pid: str) -> None:
+        if pid in t.members:
+            t.members.remove(pid)
+            if pid in t.span:
+                t.span[pid][1] = len(t.lines)
+        p = self.people[pid]
+        if p.thread_id == t.id:
+            p.thread_id, p.free_since = None, self.clock.now()
+
+    async def leave_thread(self, t: ThreadState, p: PersonState, note: str) -> None:
+        if p.id not in t.members:
+            return
+        self._release(t, p.id)
+        await self.post(t.channel, note, kind="system", thread=t)
+        if len([m for m in t.members if self.people[m].present]) < 2:
+            t.closing = True
+        self.publish_presence()
+
+    async def join_thread(self, t: ThreadState, p: PersonState) -> None:
+        t.members.append(p.id)
+        t.ever[p.id] = None
+        t.span[p.id] = [len(t.lines), None]
+        if p.is_bartender:
+            text = f"{p.short} drifts over and leans on the bar to listen in."
+        else:
+            p.thread_id, p.free_since = t.id, None
+            if t.table is not None:
+                room = len([q for q in self.table_occupants(t.channel, t.table) if q.id != p.id]) < TABLE_SEATS
+                p.table = t.table if room else self.pick_table(t.channel, [p.id])
+            text = f"{p.short} joins the conversation."
+        await self.post(t.channel, text, kind="system", thread=t)
+        self.publish_presence()
+
+    # ---------------------------------------------------------------- conversation loop
+
+    async def run_thread(self, t: ThreadState) -> None:
+        try:
+            await self.clock.sleep(self.rng.uniform(5, 25))
+            while not t.closing and t.id in self.threads:
+                live = [m for m in t.members if self.people[m].present]
+                if t.kind == "order" and t.turns >= t.max_turns:
+                    await self.finish_order(t)
+                if t.kind == "order" and t.seated and not t.lingered and t.turns >= t.max_turns:
+                    await self.maybe_linger(t)
+                if len(live) < 2 or t.turns >= t.max_turns or t.failures >= 3:
+                    break
+                if t.kind == "chat" and not any(not self.people[m].is_bartender for m in live):
+                    break  # only bartenders left; the bar chat is over
+                speaker = self.pick_speaker(t)
+                if speaker is None:
+                    break
+                if self.pulled_away(t, speaker):
+                    await self.post(t.channel, f"{speaker.short} steps away to pour for someone.", kind="system", thread=t)
+                    await self.clock.sleep(self.rng.uniform(30, 90))
+                    continue
+                began = self.clock.now()
+                await self.take_turn(t, speaker)
+                await self.maybe_second_bartender(t)
+                # Time spent waiting on the model already counts as part of the pause between lines.
+                waited = (self.clock.now() - began).total_seconds()
+                await self.clock.sleep(max(0.0, self.rng.uniform(45, 170) * (1.4 - 0.6 * speaker.talk) * human.pace(speaker) - waited))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("thread %s crashed", t.id)
+        finally:
+            patron = None
+            if t.kind == "order":
+                await self.finish_order(t)
+            if t.kind == "order" and not t.seated:
+                patron = next((self.people[m] for m in t.ever if not self.people[m].is_bartender), None)
+            await self.close_thread(t)
+            if patron and patron.present and patron.thread_id is None:
+                if not await self.rejoin(patron):
+                    await self.settle(patron)
+            # Seated guests stay on their stool after ordering or chatting; the social step takes it from here.
+
+    # ---------------------------------------------------------------- the register
+
+    async def rejoin(self, p: PersonState) -> bool:
+        """After a trip to the bar, go back to the group you left if it is still going."""
+        tid, p.return_to = p.return_to, None
+        t = self.threads.get(tid) if tid else None
+        if (not t or t.closing or t.kind != "chat" or len(t.members) >= self.max_group(t) or t.turns >= t.max_turns - 1
+                or not any(self.people[m].present and not self.people[m].is_bartender for m in t.members)):
+            return False
+        if t.channel == "bar" and not await self.move(p, "bar"):
+            return False
+        p.location = t.channel
+        await self.join_thread(t, p)
+        return True
+
+    def schedule_next_drink(self, p: PersonState, now: datetime) -> None:
+        if p.drinks >= p.drink_goal:
+            p.next_drink_at = None
+            return
+        left = ((p.leave_at or now + timedelta(minutes=60)) - now).total_seconds() / 60
+        p.next_drink_at = now + timedelta(minutes=max(12.0, left / (p.drink_goal - p.drinks + 1) * self.rng.uniform(0.7, 1.3)))
+
+    def wants_round(self, p: PersonState, now: datetime) -> bool:
+        if not p.present or p.next_drink_at is None or now < p.next_drink_at or p.drinks >= p.drink_goal or p.wants_leave:
+            return False
+        if p.leave_at and now >= p.leave_at - timedelta(minutes=10):
+            return False
+        return now < open_close(now)[1] - timedelta(minutes=10)
+
+    def free_bartender(self, p: PersonState) -> PersonState | None:
+        bts = [b for b in self.bartenders_on() if self.bartender_load(b) < 2]
+        if not bts:
+            return None
+        return self.rng.choices(bts, [1.0 + self.social.rel(p.id, b.id).familiarity / 40 for b in bts])[0]
+
+    def _finalize(self, pay: Payment, p: PersonState | None, now: datetime) -> None:
+        """Pick the tip and close the card transaction."""
+        pct = sales.pick_tip(p.persona.get("tipper", "standard") if p else "standard", self.rng)
+        pay.tip_pct, pay.tip = pct, sales.tip_cents(pay.subtotal, pct)
+        pay.total, pay.status = pay.subtotal + pay.tip, "closed"
+        pay.closed_at = min(now, sales.day_end(pay.opened_at))
+
+    async def finish_order(self, t: ThreadState) -> None:
+        """Ring up the order once, when the order conversation is done (or the guest walks out mid-order)."""
+        if t.charged:
+            return
+        t.charged = True
+        guest = next((self.people[m] for m in t.ever if not self.people[m].is_bartender), None)
+        bt = next((m for m in t.ever if self.people[m].is_bartender), None)
+        if guest is None:
+            return
+        now = self.clock.now()
+        if t.order_drink and (t.ordered or not t.again):
+            await self.charge(guest, t.order_drink, bt, t)
+        elif t.again:
+            # Passed on another: they want fewer drinks, and the bartender will not ask again right away.
+            guest.drink_goal = max(guest.drinks, guest.drink_goal - 1)
+            guest.next_drink_at = now + timedelta(minutes=30) if guest.drinks < guest.drink_goal else None
+        else:
+            guest.next_drink_at = now + timedelta(minutes=5)  # never settled on a drink; try again shortly
+
+    async def charge(self, p: PersonState, drink: str, bartender_id: str | None, t: ThreadState) -> None:
+        now = self.clock.now()
+        list_price, cost, happy = sales.price(drink, now)
+        brand, last4 = sales.card_for(p.id)
+        async with Session() as s:
+            pay = await s.get(Payment, p.tab_id) if p.tab_id else None
+            if pay is None:
+                pay = Payment(person_id=p.id, bartender_id=bartender_id, kind="tab" if p.pay_mode == "tab" else "per_drink",
+                              status="open", opened_at=now, card_brand=brand, card_last4=last4)
+                s.add(pay)
+                await s.flush()
+                if pay.kind == "tab":
+                    p.tab_id = pay.id
+            s.add(SaleItem(payment_id=pay.id, person_id=p.id, bartender_id=bartender_id, thread_id=t.id, drink=drink,
+                           list_price=list_price, price=cost, happy_hour=happy, sim_ts=now))
+            pay.subtotal += cost
+            pay.bartender_id = bartender_id
+            if pay.kind == "per_drink":
+                self._finalize(pay, p, now)
+            else:
+                pay.total = pay.subtotal
+            await s.commit()
+        p.drinks += 1
+        p.buzz = human.add_drink(p.buzz, p.persona)
+        p.drink = drink
+        if p.drinks >= p.drink_goal and self.rng.random() < 0.1:
+            p.drink_goal += 1  # one more for the road
+        self.schedule_next_drink(p, now)
+        bus.publish({"type": "sale", "payment_id": pay.id, "person_id": p.id, "status": pay.status})
+        extra = " (happy hour)" if happy else ""
+        if pay.kind == "per_drink":
+            tip = f", {pay.tip_pct}% tip" if pay.tip_pct else ", no tip"
+            text = f"{p.short} pays by card: {drink} {sales.money(cost)}{extra}{tip}."
+        else:
+            text = f"{p.short} puts {drink} on the tab ({sales.money(cost)}{extra}; {sales.money(pay.subtotal)} so far)."
+        await self.post(t.channel, text, kind="system", thread=t)
+        self.publish_presence()
+
+    async def close_tab(self, p: PersonState) -> None:
+        if p.tab_id is None:
+            return
+        tab_id, p.tab_id = p.tab_id, None
+        now = self.clock.now()
+        async with Session() as s:
+            pay = await s.get(Payment, tab_id)
+            if pay is None or pay.status != "open":
+                return
+            n = await s.scalar(select(func.count()).select_from(SaleItem).where(SaleItem.payment_id == tab_id))
+            self._finalize(pay, p, now)
+            await s.commit()
+        bus.publish({"type": "sale", "payment_id": tab_id, "person_id": p.id, "status": "closed"})
+        tip = f"{pay.tip_pct}% tip" if pay.tip_pct else "no tip"
+        await self.post("bar", f"💳 {p.short} closes out the tab: {n} drink{'s' if n != 1 else ''}, "
+                        f"{sales.money(pay.subtotal)} + {tip} = {sales.money(pay.total)}.", kind="system")
+
+    # ---------------------------------------------------------------- bar seating
+
+    def stools_taken(self) -> set[int]:
+        return {p.stool for p in self.patrons() if p.present and p.stool is not None}
+
+    def free_stool(self, near: list[int] | None = None) -> int | None:
+        free = [i for i in range(BAR_STOOLS) if i not in self.stools_taken()]
+        if not free:
+            return None
+        if near:
+            return min(free, key=lambda i: (min(abs(i - n) for n in near), self.rng.random()))
+        return self.rng.choice(free)
+
+    def table_occupants(self, area: str, table: int) -> list[PersonState]:
+        return [q for q in self.patrons() if q.present and q.location == area and q.table == table]
+
+    def pick_table(self, area: str, group: list[str] | tuple = ()) -> int | None:
+        """The emptiest table in the area that still has room for the group, or None (standing)."""
+        n = TABLES.get(area, 0)
+        need = max(1, len(group))
+        counts = [len([q for q in self.table_occupants(area, i) if q.id not in group]) for i in range(n)]
+        fits = [i for i in range(n) if counts[i] + need <= TABLE_SEATS]
+        if not fits:
+            return None
+        return min(fits, key=lambda i: (counts[i], self.rng.random()))
+
+    def friends_on_stools(self, p: PersonState, min_fam: int = 35) -> list[int]:
+        return [q.stool for q in self.patrons()
+                if q.present and q.id != p.id and q.stool is not None and self.social.rel(p.id, q.id).familiarity >= min_fam]
+
+    def bartenders_on(self) -> list[PersonState]:
+        return [b for b in self.people.values() if b.is_bartender and b.present]
+
+    def bartender_load(self, b: PersonState) -> int:
+        return sum(1 for t in self.threads.values() if b.id in t.members and t.kind != "staff")
+
+    def pick_bartender(self, p: PersonState) -> PersonState | None:
+        bts = self.bartenders_on()
+        if not bts:
+            return None
+        weights = [1.0 + self.social.rel(p.id, b.id).familiarity / 40 + (1.5 if self.bartender_load(b) == 0 else 0) for b in bts]
+        return self.rng.choices(bts, weights)[0]
+
+    def seat_chance(self, p: PersonState) -> float:
+        if len(self.stools_taken()) >= BAR_STOOLS:
+            return 0.0
+        base = p.persona.get("bar_seat")
+        if base is None:
+            base = 0.2 + 0.25 * p.talk
+        if not any(q.present and q.id != p.id and self.social.rel(p.id, q.id).familiarity >= 35 for q in self.patrons()):
+            base += 0.2
+        if any(self.social.rel(p.id, b.id).familiarity >= 40 for b in self.bartenders_on()):
+            base += 0.15
+        return max(0.0, min(0.85, base))
+
+    async def sit(self, p: PersonState, text: str, near: list[int] | None = None) -> bool:
+        stool = self.free_stool(near)
+        if stool is None or not p.present:
+            return False
+        p.stool, p.location, p.free_since, p.table = stool, "bar", self.clock.now(), None
+        await self.post("bar", text.format(p.short), kind="system")
+        self.publish_presence()
+        return True
+
+    def linger_chance(self, t: ThreadState) -> float:
+        guest = next((self.people[m] for m in t.members if not self.people[m].is_bartender), None)
+        bts = [self.people[m] for m in t.members if self.people[m].is_bartender]
+        if not guest or not bts:
+            return 0.0
+        fam = max(self.social.rel(guest.id, b.id).familiarity for b in bts)
+        busy = sum(1 for p in self.patrons() if p.present and p.location == "bar") > 8
+        return max(0.0, min(0.9, 0.35 + 0.3 * guest.talk + fam / 200 - (0.2 if busy else 0)))
+
+    async def maybe_linger(self, t: ThreadState) -> None:
+        """A seated guest who has ordered may stay and talk across the bar; same thread, so it stays one card."""
+        t.lingered = True
+        if self.rng.random() < self.linger_chance(t):
+            t.kind, t.again = "chat", False
+            t.max_turns = t.turns + self.rng.randint(4, 9)
+            t.last_topic_turn = t.turns
+            bus.publish(self.thread_event(t))
+
+    async def maybe_second_bartender(self, t: ThreadState) -> None:
+        if t.kind != "chat" or t.channel != "bar" or t.closing or len(t.members) >= MAX_GROUP_BAR:
+            return
+        has_bt = any(self.people[m].is_bartender for m in t.members)
+        others = [b for b in self.bartenders_on() if b.id not in t.members and self.bartender_load(b) < 2]
+        quiet = sum(1 for p in self.patrons() if p.present and p.location == "bar") <= 3
+        if others and self.rng.random() < (0.14 if quiet else 0.07) * (1 if has_bt else 0.5):
+            await self.join_thread(t, self.rng.choice(others))
+
+    def pulled_away(self, t: ThreadState, speaker: PersonState) -> bool:
+        """A bartender mid-chat sometimes has to go pour for someone else."""
+        if not (speaker.is_bartender and t.kind == "chat" and t.channel == "bar" and speaker.id in t.members):
+            return False
+        busy = any(o.kind == "order" and speaker.id in o.members for o in self.threads.values())
+        return busy and self.rng.random() < 0.3
+
+    def stool_neighbors(self, p: PersonState, others: list[str]) -> bool:
+        """True if p sits within two stools of any of `others`."""
+        if p.stool is None:
+            return False
+        return any(self.people[o].stool is not None and abs(self.people[o].stool - p.stool) <= 2 for o in others if o in self.people)
+
+    def max_group(self, t: ThreadState) -> int:
+        return MAX_GROUP_BAR if t.channel == "bar" else MAX_GROUP
+
+    def pick_speaker(self, t: ThreadState) -> PersonState | None:
+        members = [self.people[m] for m in t.members if self.people[m].present]
+        if not members:
+            return None
+        if t.kind == "order":
+            # The guest orders, the bartender answers, the guest wraps up.
+            guests, bts = [p for p in members if not p.is_bartender], [p for p in members if p.is_bartender]
+            order = bts + guests if t.ask else guests + bts
+            return order[t.turns % len(order)] if len(order) > 1 else None
+        if t.channel == "bar" and t.kind == "chat" and self.rng.random() < 0.12:
+            bts = [b for b in self.people.values() if b.is_bartender and b.present and b.id not in t.members]
+            if bts:
+                return self.rng.choice(bts)
+        recent = [s for k, s, _ in t.lines if k == "speech"][-3:]
+        weights = []
+        for p in members:
+            w = (0.2 + p.talk) * human.speaker_weight(p)
+            if recent and p.id == recent[-1]:
+                w *= 0.12
+            elif p.id in recent:
+                w *= 0.6
+            if p.wants_leave:
+                w *= 2.0
+            weights.append(w)
+        return self.rng.choices(members, weights)[0]
+
+    def halt(self, text: str) -> None:
+        self.clock.pause()
+        self.banner = text
+        bus.publish({"type": "banner", "text": text})
+
+    def cooling(self, a: str, b: str, now: datetime) -> bool:
+        """True if these two just finished talking and should not immediately restart."""
+        t = self.cooldown.get((a, b) if a < b else (b, a))
+        return t is not None and now - t < timedelta(minutes=25)
+
+    def check_budget(self) -> bool:
+        if settings.llm_mode == "live" and usage.over_budget():
+            if not self.budget_paused:
+                self.budget_paused = True
+                self.halt(f"Daily budget of ${usage.budget:.2f} reached. Simulation paused.")
+                log.warning("budget reached; pausing")
+            return True
+        return False
+
+    async def take_turn(self, t: ThreadState, p: PersonState) -> None:
+        if self.check_budget():
+            return
+        if p.wants_leave and p.id in t.members:
+            t.nudge_leave.add(p.id)
+        wind_down = t.kind == "chat" and t.turns >= t.max_turns - 2
+        if t.kind == "chat" and not p.is_bartender and p.id not in t.excuse:
+            if why := human.excuse_due(p, self.clock.now(), t.turns, self.rng):
+                t.excuse[p.id] = why
+        req = agent_mod.build_turn(self, t, p, wind_down)
+        bus.publish({"type": "typing", "thread_id": t.id, "person_id": p.id, "on": True})
+        began = time.monotonic()
+        try:
+            utt = await self.llm.speak(req)
+        finally:
+            took = time.monotonic() - began
+            self.latency = took if self.latency == 0 else 0.8 * self.latency + 0.2 * took
+            bus.publish({"type": "typing", "thread_id": t.id, "person_id": p.id, "on": False})
+        if utt is None:
+            t.failures += 1
+            return
+        utt = agent_mod.sanitize(utt, p)
+        if not utt.say:
+            t.failures += 1
+            return
+        # The world moved while we waited on the model: make sure this turn still makes sense.
+        member_ok = p.id in t.members or (p.is_bartender and p.present and t.kind == "chat")
+        if t.closing or t.id not in self.threads or not p.present or not member_ok:
+            return
+        t.failures = 0
+        t.turns += 1
+        t.ever[p.id] = None
+        p.last_spoke = self.clock.now()
+        await self.post(t.channel, utt.say, p.id, "speech", t, thought=utt.thought)
+        if not p.is_bartender:
+            human.spoke(p)
+            human.blend_mood(p, utt.mood)
+            p.thought = utt.thought or p.thought
+        if t.kind == "order":
+            self.record_drink(t, p, utt)
+        await self.escalate(t, p)
+        if utt.lookup:
+            self.spawn(self.lookup_task(p, utt.lookup, t))
+        await self.apply_action(t, p, utt, forced_leave=p.id in t.nudge_leave)
+
+    # ---------------------------------------------------------------- God Mode escalation
+
+    async def escalate(self, t: ThreadState, p: PersonState) -> None:
+        """Opposing sides in a chat about a divisive event wind each other up, until someone steps in or storms off."""
+        g = self.god
+        if not g or not t.on_event or t.kind != "chat" or p.is_bartender or t.closing:
+            return
+        now = self.clock.now()
+        mine = godmode.stance(g, p.id, p.persona)
+        rivals = [self.people[m] for m in t.members if m != p.id and not self.people[m].is_bartender
+                  and godmode.opposed(mine, godmode.stance(g, m, self.people[m].persona))]
+        if not rivals:
+            t.tension = max(0.0, t.tension - 0.1)
+            return
+        t.tension += 0.12 * g["divisiveness"] * self.rng.uniform(0.5, 1.5) * godmode.fade(g, now) * human.escalation(p.persona)
+        human.nudge_mood(p, -0.04)
+        if g["divisiveness"] < 3 or t.tension < 2:
+            return
+        bts = self.bartenders_on()
+        if not t.stepped_in and bts:
+            t.stepped_in, t.tension = True, 1.0
+            b = self.rng.choice(bts)
+            how = "leans in and" if t.channel == "bar" else "comes over from the bar and"
+            await self.post(t.channel, f"{b.short} {how} asks everyone to keep it friendly.", kind="system", thread=t)
+            return
+        who = self.rng.choices([p, *rivals], [1.0] + [1.2 - r.talk for r in rivals])[0]
+        others = [m for m in t.members if m != who.id and not self.people[m].is_bartender]
+        t.tension = 0.5
+        if g["divisiveness"] >= 4 and bts and self.rng.random() < 0.2:
+            await self.leave_thread(t, who, f"{self.rng.choice(bts).short} tells {who.short} it's time to cool off outside.")
+            await self.depart(who)
+        else:
+            await self.leave_thread(t, who, f"{who.short} shakes their head and walks off.")
+            await self.move(who, self.rng.choice([x for x in LOCATIONS if x != t.channel]))
+        human.nudge_mood(who, -0.2)
+        for o in others:
+            human.nudge_mood(self.people[o], -0.1)
+            await self.social.apply_delta(who.id, o, 0, -6, f"argued about: {g['text'][:70]}")
+        self.publish_relationships([who.id, *others])
+
+    def record_drink(self, t: ThreadState, p: PersonState, utt) -> None:
+        """Remember what the guest is drinking: only names on the menu count, and the guest's own order wins."""
+        # On a repeat round a name in the chatter ("not another Fallforge") is not an order; only the drink field is.
+        name = menu.match(utt.drink) or (None if t.again else menu.match(utt.say))
+        if not name:
+            return
+        guest = p if not p.is_bartender else next(
+            (self.people[m] for m in t.members if not self.people[m].is_bartender), None)
+        if guest is None or (p.is_bartender and (t.ordered or t.again)):
+            return
+        guest.drink, t.ordered, t.order_drink = name, t.ordered or not p.is_bartender, name
+        self.publish_presence()
+
+    async def excuse(self, t: ThreadState, p: PersonState, why: str) -> None:
+        """Bow out of a conversation but stay in the taproom, for a few minutes or a good while."""
+        need = p.need if why.startswith("You need") else ""
+        await self.leave_thread(t, p, f"{p.short} excuses themselves" + (f" to {human.NEEDS[need]}." if need else "."))
+        p.free_since = self.clock.now() + human.away_for(why, self.rng)
+        if need:
+            p.need, p.need_at = "", None
+
+    async def apply_action(self, t: ThreadState, p: PersonState, utt, forced_leave: bool) -> None:
+        if p.is_bartender:
+            return
+        if utt.action == "leave" or forced_leave:
+            await self.leave_thread(t, p, f"{p.short} heads out.")
+            await self.depart(p)
+        elif (utt.action == "excuse" or p.id in t.excuse) and t.kind == "chat":
+            await self.excuse(t, p, t.excuse.pop(p.id, ""))
+        elif utt.action == "move" and utt.target != t.channel:
+            if utt.target == "bar" and not p.seated and self.free_stool() is None:
+                return  # no stool free; they stay where they are
+            await self.leave_thread(t, p, f"{p.short} wanders off to the {utt.target}.")
+            await self.move(p, utt.target)
+        elif utt.action == "introduce":
+            qid = self.resolve(utt.target)
+            q = self.people.get(qid) if qid else None
+            if (q and q.present and not q.is_bartender and q.id not in t.members
+                    and len(t.members) < self.max_group(t) and q.location == t.channel):
+                if q.thread_id and q.thread_id in self.threads:
+                    other = self.threads[q.thread_id]
+                    await self.leave_thread(other, q, f"{q.short} gets waved over to another conversation.")
+                await self.join_thread(t, q)
+
+    # ---------------------------------------------------------------- lookups & news
+
+    async def lookup_task(self, p: PersonState, query: str, t: ThreadState) -> None:
+        now = self.clock.now()
+        self.lookups = [x for x in self.lookups if now - x < timedelta(hours=1)]
+        if not settings.web_search_enabled or len(self.lookups) >= settings.max_lookups_per_sim_hour or self.check_budget():
+            return
+        self.lookups.append(now)
+        await self.post(t.channel, f"{p.short} pulls out a phone to look something up.", kind="system", thread=t)
+        fact = await self.llm.lookup(query, settings.brewery_city)
+        if fact:
+            p.pending_fact = fact[:400]
+
+    async def news_desk(self, day: str) -> None:
+        if self.check_budget():
+            return
+        lines = await self.llm.news(settings.brewery_city, self.clock.now().strftime("%A, %B %-d, %Y"))
+        if not lines:
+            return
+        self.news = lines
+        async with Session() as s:
+            for ln in lines:
+                s.add(NewsItem(sim_day=day, text=ln))
+            await s.commit()
+        await self.post("door", "📰 Around town today:\n" + "\n".join(f"• {x}" for x in lines), kind="system")
+
+    # ---------------------------------------------------------------- people movement
+
+    async def arrive(self, p: PersonState) -> None:
+        now = self.clock.now()
+        p.present, p.location, p.visited_day, p.wants_leave, p.pending_arrival = True, "ordering", now.strftime("%Y-%m-%d"), False, None
+        stay = p.persona.get("stay", 90) * self.rng.uniform(0.6, 1.5) * human.stay_scale(p.persona)
+        close = open_close(now)[1]
+        p.leave_at = min(now + timedelta(minutes=stay), close + timedelta(minutes=self.rng.uniform(0, 5)))
+        p.free_since = None
+        # Today's tab, drink count and card habit; one visit in ten they do the opposite of their usual.
+        usual = p.persona.get("pay", "card")
+        p.pay_mode = usual if self.rng.random() < 0.9 else ("card" if usual == "tab" else "tab")
+        p.drinks, p.drink_goal, p.tab_id, p.return_to = 0, human.goal_shift(p.persona, sales.pick_goal(self.rng, stay), self.rng), None, None
+        p.next_drink_at = None
+        prev = self.visits.get(p.id, {})
+        p.gap_days = max(0, (now.date() - datetime.fromisoformat(prev["last"]).date()).days) if prev.get("last") else 0
+        self.visits[p.id] = {"n": prev.get("n", 0) + 1, "last": now.isoformat()}
+        p.arrived_at, p.reason, p.busy_until, p.thought = now, human.pick_reason(p.persona, self.rng), None, ""
+        p.mood, p.buzz, p.battery = human.opening_mood(p.persona, self.rng), 0.0, self.rng.uniform(0.8, 1.0)
+        p.need, p.need_at = human.pick_need(self.rng, stay, now, now.weekday() >= 3)
+        p.first_visit = bool(p.persona.get("walkin")) and self.visits[p.id]["n"] == 1
+        bus.publish({"type": "person", "person": self.person_view(p)})  # keeps visit counts current in open browsers
+        await self.post("door", f"🍺 {p.display} walks in.", kind="system")
+        # Friends tend to follow each other in.
+        if now < close - timedelta(minutes=LAST_CALL_MIN + 20):
+            for q in self.patrons():
+                if (not q.present and q.visited_day != p.visited_day and q.pending_arrival is None
+                        and self.social.rel(p.id, q.id).familiarity >= 55 and self.rng.random() < (0.5 if p.reason == "catch_up" else 0.3)):
+                    q.pending_arrival = now + timedelta(minutes=self.rng.uniform(5, 25))
+        b = self.pick_bartender(p)
+        if b:
+            seated = self.rng.random() < self.seat_chance(p) and await self.sit(
+                p, "{} pulls up a stool at the bar.", self.friends_on_stools(p) or None)
+            await self.open_thread("bar" if seated else "ordering", "order", [p.id, b.id], max_turns=3, seated=seated)
+        else:
+            p.next_drink_at = now + timedelta(minutes=10)
+            await self.settle(p)
+
+    async def depart(self, p: PersonState) -> None:
+        if not p.present:
+            return
+        if p.thread_id and p.thread_id in self.threads:
+            t = self.threads[p.thread_id]
+            if t.kind == "order":
+                await self.finish_order(t)  # walking out mid-order still pays for the pour
+            await self.leave_thread(t, p, f"{p.short} heads out.")
+        await self.close_tab(p)
+        p.present, p.location, p.thread_id, p.wants_leave, p.free_since, p.stool, p.drink = False, None, None, False, None, None, ""
+        p.table = None
+        p.return_to, p.next_drink_at = None, None
+        await self.post("door", f"👋 {p.display} heads out.", kind="system")
+        self.publish_presence()
+
+    async def move(self, p: PersonState, loc: str) -> bool:
+        """Go somewhere else. The bar means a stool, so a full bar says no."""
+        if loc not in LOCATIONS or not p.present:
+            return False
+        if loc == "bar":
+            return p.seated or await self.sit(p, "{} grabs a stool at the bar.", self.friends_on_stools(p) or None)
+        p.location, p.free_since, p.stool = loc, self.clock.now(), None
+        p.table = self.pick_table(loc, [p.id])
+        await self.post(loc, f"{p.short} settles in at the {LOC_DESC[loc]}.", kind="system")
+        self.publish_presence()
+        return True
+
+    async def settle(self, p: PersonState) -> None:
+        """After ordering, a guest drifts toward friends or a spot that suits them."""
+        friends = [q for q in self.patrons() if q.present and q.id != p.id and q.location
+                   and self.social.rel(p.id, q.id).familiarity >= 35]
+        if friends and self.rng.random() < 0.75:
+            weights = [self.social.rel(p.id, q.id).familiarity for q in friends]
+            loc = self.rng.choices(friends, weights)[0].location
+        else:
+            loc = self.rng.choices(LOCATIONS, [0.45, 0.32, 0.23])[0]
+        p.free_since = self.clock.now()
+        if loc == "bar" and not await self.move(p, "bar"):
+            loc = self.rng.choices(LOCATIONS[1:], [0.58, 0.42])[0]  # every stool is taken
+        if loc != "bar" and loc != p.location:
+            await self.move(p, loc)
+
+    async def bartender_on(self, b: PersonState) -> None:
+        b.present, b.location = True, "bar"
+
+    def bartender_off(self, b: PersonState) -> None:
+        b.present, b.location, b.thread_id = False, None, None
+
+    # ---------------------------------------------------------------- the world tick
+
+    async def tick(self) -> None:
+        now = self.clock.now()
+        if self.clock.paused:
+            return
+        prev = self._last_tick_sim or now
+        self._last_tick_sim = now
+        dt_min = min((now - prev).total_seconds() / 60, 20)
+        day = now.strftime("%Y-%m-%d")
+        open_t, close_t = open_close(now)
+
+        if self.news_day != day and now.hour >= 10:
+            self.news_day = day
+            self.spawn(self.news_desk(day))
+
+        await self.update_shift(now)
+
+        if is_open(now):
+            self.crowd_days[day] = max(self.crowd_days.get(day, 0.0), self.crowd)
+            if self.opened_day != day:
+                self.opened_day = day
+                await self.post("door", "🔓 Modist Social is open.", kind="system")
+                if sales.happy_hour(now):
+                    await self.post("door", "🍻 Happy hour until 6pm: half price on " + _names(sales.specials(now)) + ".", kind="system")
+            if now >= close_t - timedelta(minutes=LAST_CALL_MIN) and self.last_call_day != day:
+                self.last_call_day = day
+                await self.post("door", "🔔 Last call in 30 minutes.", kind="system")
+                await self.post("bar", "Last call in 30 minutes, folks.", kind="system")
+                for p in self.patrons():
+                    if p.present and p.leave_at:
+                        p.leave_at = min(p.leave_at, close_t + timedelta(minutes=self.rng.uniform(0, 5)))
+            if now < close_t - timedelta(minutes=LAST_CALL_MIN):
+                await self.arrivals(now, dt_min, day)
+                self.walk_ins(now, dt_min)
+        elif self.closed_day != day and self.opened_day == day:
+            self.closed_day = day
+            await self.post("door", "🔒 Modist Social is closed. Thanks for coming out.", kind="system")
+            self.spawn(reflect_day(self, day))
+        elif not self.threads and not any(p.present for p in self.patrons()) and (resume := launch_time(now)) != now:
+            # Nobody is left and nothing is happening: skip the dead hours instead of watching them go by.
+            await self.post("door", f"⏩ Closed for the night. Skipping ahead to {(resume + timedelta(minutes=10)).strftime('%-I:%M%p').lower()} opening.", kind="system")
+            self.clock.skip_to(resume)
+            self._last_tick_sim = self._last_social_sim = None
+            return
+
+        if is_open(now):
+            await self.environment_step(now)
+        for p in self.patrons():
+            if p.present:
+                human.tick(p, dt_min)
+        for p in self.patrons():
+            if not p.present or p.leave_at is None:
+                continue
+            overdue = now >= p.leave_at + timedelta(minutes=25) or (not is_open(now) and now > close_t + timedelta(minutes=10))
+            if now >= p.leave_at and (p.thread_id is None or overdue):
+                await self.depart(p)
+            elif now >= p.leave_at:
+                p.wants_leave = True
+
+        real = time.monotonic()
+        if real - self._last_social_real >= SOCIAL_EVERY:
+            self._last_social_real = real
+            prev_s = self._last_social_sim or now
+            self._last_social_sim = now
+            await self.social_step(now, max((now - prev_s).total_seconds() / 60, 0.0))
+
+    async def environment_step(self, now: datetime) -> None:
+        """Things happening in the room itself: the game on the TV, trivia starting."""
+        day = now.strftime("%Y-%m-%d")
+        prev = self._env_prev if self._env_prev and now - self._env_prev < timedelta(minutes=30) else now
+        self._env_prev = now
+        g = environment.game_on(now)
+        if g and environment.live(g, now) and f"{day}-game" not in self._env_flags:
+            self._env_flags.add(f"{day}-game")
+            await self.post("bar", f"📺 The {g.team} game is on the bar TV: {g.team} vs. {g.opp}.", kind="system")
+        if g:
+            for ours, pts, us, them in environment.new_plays(g, prev, now):
+                who = g.team if ours else g.opp
+                await self.post("bar", f"📺 {who} score. {g.team} {us}, {g.opp} {them}.", kind="system")
+                for q in self.patrons():
+                    if q.present and environment.fan_of(g.team, q.persona):
+                        human.nudge_mood(q, 0.15 if ours else -0.15)
+        if environment.trivia_on(now) and f"{day}-trivia" not in self._env_flags:
+            self._env_flags.add(f"{day}-trivia")
+            await self.post("high-tops", "🎲 Trivia is starting at the high-tops.", kind="system")
+
+    async def update_shift(self, now: datetime) -> None:
+        pair = on_shift(now) if is_open(now) else None
+        if pair == self.shift:
+            return
+        old, self.shift = set(self.shift or ()), pair
+        new = set(pair or ())
+        for bid in old - new:
+            self.bartender_off(self.people[bid])
+        for bid in new - old:
+            await self.bartender_on(self.people[bid])
+        if pair:
+            names = " and ".join(self.people[b].display for b in pair)
+            await self.post("door", f"🔁 {names} {'are' if len(pair) > 1 else 'is'} behind the bar.", kind="system")
+            await self.post("staff", f"Shift starts: {names}.", kind="system")
+        self.publish_presence()
+
+    async def arrivals(self, now: datetime, dt_min: float, day: str) -> None:
+        for p in self.patrons():
+            if p.present or p.visited_day == day:
+                continue
+            if p.pending_arrival is not None:
+                if now >= p.pending_arrival:
+                    await self.arrive(p)
+                continue
+            d = p.persona
+            rate = arrival_rate(d.get("freq", 2), d.get("days", []), d.get("window", [17, 20]), now) * self.crowd
+            if self.rng.random() < 1 - math.exp(-rate * dt_min / 60):
+                await self.arrive(p)
+
+    def walk_ins(self, now: datetime, dt_min: float) -> None:
+        """Now and then a stranger walks in. They are made on the spot (see welcome_newcomer), so this only rolls."""
+        if (not settings.newcomers_enabled or self.generating or len(self.patrons()) >= settings.max_patrons
+                or self.check_budget()):
+            return
+        rate = arrival_rate(settings.newcomers_per_week / NEWCOMER_SCALE, NEWCOMER_DAYS, NEWCOMER_WINDOW, now) * self.crowd
+        if self.rng.random() < 1 - math.exp(-rate * dt_min / 60):
+            self.generating = True
+            self.spawn(self.welcome_newcomer())
+
+    async def welcome_newcomer(self) -> None:
+        """Make a person who has never been here, save them, and have them walk in."""
+        try:
+            now = self.clock.now()
+            picked = newcomers.pick_name(
+                self.rng, {q.short for q in self.people.values()}, {q.display for q in self.people.values()})
+            if picked is None:
+                return  # every name in the pool is taken
+            name, pronouns = picked
+            skel = newcomers.skeleton(self.rng, now)
+            raw = None
+            if (make := getattr(self.llm, "persona", None)) and not self.check_budget():
+                jobs = [q.persona.get("job", "") for q in self.patrons()]
+                jobs = self.rng.sample(jobs, min(40, len(jobs)))  # a taste of what's common, so the model varies
+                raw = await make(newcomers.brief(name, pronouns, skel, now, settings.brewery_city, jobs))
+            p = await self.add_person(name, pronouns, newcomers.validate(raw, skel, self.rng))
+            if not is_open(self.clock.now()):
+                return  # the bar closed while they were being made; they'll come on their own schedule
+            hosts = [q for q in self.patrons() if q.present and q.id != p.id]
+            host = self.rng.choice(hosts) if hosts and self.rng.random() < PLUS_ONE_CHANCE else None
+            if host:
+                await self.befriend(host, p)
+            await self.arrive(p)
+        finally:
+            self.generating = False
+
+    async def befriend(self, host: PersonState, guest: PersonState) -> None:
+        """A friend who brought someone along: they already know each other a little."""
+        now = self.clock.now()
+        for i in range(5):
+            await self.social.apply_delta(host.id, guest.id, 8, 3, f"{host.short} brought {guest.short} along" if i == 0 else "")
+        await self.social.mark_met(host.id, guest.id, now)
+        await self.social.add_memory(host.id, now, f"Brought {guest.short} along to the taproom for the first time.", [guest.id], 5)
+        await self.social.add_memory(guest.id, now, f"{host.short} brought me along to the taproom.", [host.id], 6)
+        await self.post("door", f"{host.short} brought {guest.short} along.", kind="system")
+        self.publish_relationships([host.id, guest.id])
+
+    async def order_round(self, p: PersonState, b: PersonState) -> None:
+        """Another drink: the bartender asks a guest on a stool; anyone else walks up to the bar."""
+        if not p.seated and p.location != "ordering":
+            await self.post(p.location, f"{p.short} heads up to the bar for another.", kind="system")
+            p.location, p.table = "ordering", None
+        await self.open_thread("bar" if p.seated else "ordering", "order", [p.id, b.id], max_turns=2,
+                               seated=p.seated, again=True, ask=p.seated)
+
+    async def social_step(self, now: datetime, dt_min: float) -> None:
+        if self.god and not godmode.alive(self.god, now):
+            await self.clear_god()
+        await self.social.flush()
+        k = max(dt_min, 0.05) * math.sqrt(self.crowd)
+        taken: set[str] = set()
+        game = environment.game_on(now)
+        for loc in LOCATIONS:
+            free = [p for p in self.patrons() if p.present and p.location == loc and p.thread_id is None
+                    and p.free_since is not None and (now - p.free_since).total_seconds() >= 90]
+            self.rng.shuffle(free)
+            for p in free:
+                if p.id in taken:
+                    continue
+                if self.wants_round(p, now) and (b := self.free_bartender(p)):
+                    taken.add(p.id)
+                    await self.order_round(p, b)
+                    continue
+                foe = next((q for q in self.patrons() if q.present and q.location == loc and q.id != p.id
+                            and human.avoids(self.social.rel(p.id, q.id).affinity)), None)
+                if foe and self.rng.random() < _prob(0.05, k):
+                    taken.add(p.id)
+                    dest = self.rng.choice([x for x in LOCATIONS if x != loc])
+                    await self.post(loc, f"{p.short} sees {foe.short} and drifts over to the {dest}.", kind="system")
+                    await self.move(p, dest)
+                    continue
+                joinable = [t for t in self.threads.values()
+                            if t.channel == loc and t.kind == "chat" and not t.closing
+                            and len(t.members) < self.max_group(t) and t.turns < t.max_turns - 3]
+                best, best_p = None, 0.0
+                for t in joinable:
+                    if any(self.cooling(p.id, m, now) for m in t.members):
+                        continue
+                    affs = [self.social.rel(p.id, m).affinity for m in t.members]
+                    if any(human.avoids(a) for a in affs):
+                        continue
+                    fam = max((self.social.rel(p.id, m).familiarity for m in t.members), default=0)
+                    pr = _prob(0.03 + 0.3 * fam / 100 + 0.04 * p.talk + (0.05 if self.stool_neighbors(p, t.members) else 0), k)
+                    pr = min(0.99, pr * human.drive(p, now) * human.affinity_weight(sum(affs) // max(1, len(affs))))
+                    if pr > best_p:
+                        best, best_p = t, pr
+                if best and self.rng.random() < best_p:
+                    await self.join_thread(best, p)
+                    taken.add(p.id)
+                    continue
+                partners = [q for q in free if q.id != p.id and q.id not in taken and not self.cooling(p.id, q.id, now)
+                            and not human.avoids(self.social.rel(p.id, q.id).affinity)]
+                if partners:
+                    fams = [self.social.rel(p.id, q.id).familiarity for q in partners]
+                    # Strangers on neighbouring stools strike up a conversation far more often than strangers across the room.
+                    near = [1.0 if self.stool_neighbors(p, [x.id]) else 0.0 for x in partners]
+                    q = self.rng.choices(partners, [(0.05 + f / 100 + 0.3 * x.talk + 0.4 * n) * human.affinity_weight(self.social.rel(p.id, x.id).affinity)
+                                                    for f, x, n in zip(fams, partners, near)])[0]
+                    fam = self.social.rel(p.id, q.id).familiarity
+                    if self.rng.random() < min(0.99, _prob(0.04 + 0.35 * fam / 100 + 0.04 * p.talk + (0.06 if self.stool_neighbors(p, [q.id]) else 0), k) * human.drive(p, now)):
+                        taken |= {p.id, q.id}
+                        await self.open_thread(loc, "chat", [p.id, q.id], self.rng.randint(10, 24))
+                        continue
+                bartenders = [b for b in self.bartenders_on() if self.bartender_load(b) < 2]
+                if loc == "bar" and bartenders:
+                    b = self.pick_bartender(p) if len(bartenders) == len(self.bartenders_on()) else self.rng.choice(bartenders)
+                    # Seated regulars chat with the bartenders much more than people standing by.
+                    rate = 0.12 + 0.1 * self.social.rel(p.id, b.id).familiarity / 100 if p.seated else 0.05
+                    if self.rng.random() < _prob(rate, k):
+                        taken.add(p.id)
+                        members = [p.id, b.id]
+                        quiet = sum(1 for x in self.patrons() if x.present and x.location == "bar") <= 3
+                        if quiet and len(bartenders) == 2 and self.rng.random() < 0.25:
+                            members = [p.id] + [x.id for x in bartenders]
+                        await self.open_thread("bar", "chat", members, self.rng.randint(5, 9))
+                        continue
+                idle = p.busy_until is None or now >= p.busy_until
+                if idle and (p.reason in ("solo", "game") or p.battery < human.LOW_BATTERY) and self.rng.random() < _prob(0.04, k):
+                    if p.reason == "game" and environment.live(game, now):
+                        text = f"{{}} watches the {game.team} game on the bar TV."
+                    else:
+                        text = self.rng.choice(human.ACTIVITIES)
+                    p.busy_until = now + timedelta(minutes=self.rng.uniform(15, 30))
+                    await self.post(p.location, text.format(p.short), kind="system")
+                    continue
+                if (now - p.free_since).total_seconds() >= 20 * 60 and self.rng.random() < _prob(0.03, k):
+                    busy = [t.channel for t in self.threads.values() if t.kind == "chat" and t.channel != loc and len(t.members) < MAX_GROUP]
+                    if busy:
+                        taken.add(p.id)
+                        await self.move(p, self.rng.choice(busy))
+
+        # Guests in the middle of a conversation elsewhere walk up to the bar when they want another drink.
+        for p in self.patrons():
+            t = self.threads.get(p.thread_id) if p.thread_id else None
+            if (t and t.kind == "chat" and not t.closing and not p.seated and self.wants_round(p, now)
+                    and self.rng.random() < _prob(0.25, k) and (b := self.free_bartender(p))):
+                await self.leave_thread(t, p, f"{p.short} heads up to the bar for another.")
+                p.return_to = t.id
+                await self.order_round(p, b)
+
+        pair = [self.people[b] for b in (self.shift or ()) if self.people[b].present]
+        staff_open = any(t.channel == "staff" for t in self.threads.values())
+        quiet = sum(1 for p in self.patrons() if p.present and p.location == "bar") <= 2
+        if len(pair) == 2 and not staff_open and quiet and self.rng.random() < _prob(0.04, k):
+            await self.open_thread("staff", "staff", [b.id for b in pair], self.rng.randint(4, 7))
+
+    # ---------------------------------------------------------------- loop & control
+
+    async def run(self) -> None:
+        while True:
+            try:
+                await self.tick()
+                real = time.monotonic()
+                if real - self._last_clock_pub >= 1.0:
+                    self._last_clock_pub = real
+                    bus.publish(self.clock_event())
+                if real - self._last_stats_pub >= 3.0:
+                    self._last_stats_pub = real
+                    bus.publish({"type": "stats", "stats": usage.snapshot()})
+                self.govern()
+                if real - self._last_save >= 10.0:
+                    self._last_save = real
+                    await self.save_clock()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("tick failed")
+            await asyncio.sleep(TICK)
+
+    def govern(self) -> None:
+        """Hold the clock back when model calls are slower than the sim can afford, so a spoken line never costs
+        more than LINE_BUDGET sim seconds. Chat per sim hour then looks the same at any speed setting."""
+        cap = max(5.0, min(240.0, LINE_BUDGET / self.latency)) if self.latency > 0.05 else 0.0
+        if abs(cap - self._last_cap) <= 0.1 * max(cap, self._last_cap):
+            return  # not worth rebasing the clock for a small change
+        self._last_cap = cap
+        self.clock.set_cap(cap or None)
+
+    async def save_clock(self) -> None:
+        async with Session() as s:
+            await set_state(s, "visits", self.visits)
+            await set_state(s, "lives", self.lives)
+            await set_state(s, "clock", {
+                "sim_now": self.clock.now().isoformat(), "speed": self.clock.speed,
+                "crowd": self.crowd, "crowd_days": self.crowd_days,
+            })
+            await s.commit()
+
+    def god_people(self) -> list[dict]:
+        """Who the model hears about when it scores an event: everyone here, then the most frequent visitors.
+        Anyone left out still gets a stable stance from a hash of their id (god.stance)."""
+        ranked = sorted(self.people.values(), key=lambda p: (not p.present, -float(p.persona.get("freq", 2))))
+        return [{"id": p.id, "short": p.short, "persona": p.persona} for p in ranked[:GOD_ROSTER]]
+
+    async def assess_god(self, text: str) -> dict:
+        """Score an event (reach, divisiveness, sides, who feels what). One model call, remembered for set_god."""
+        text = godmode.clean(text)
+        if self._assessed and self._assessed[0] == text:
+            return self._assessed[1]
+        a = await godmode.assess(self.llm, text, self.god_people())
+        self._assessed = (text, a)
+        return a
+
+    async def set_god(self, text: str, reach: int | None = None, divisiveness: int | None = None) -> None:
+        text = godmode.clean(text)
+        a = await self.assess_god(text)
+        self.god = godmode.build(text, a, self.clock.now(), reach, divisiveness, self.god_people())
+        for t in self.threads.values():
+            t.tension = 0.0
+            if t.kind == "chat":
+                self.roll_event(t)
+        async with Session() as s:
+            await set_state(s, "god", self.god)
+            await s.commit()
+        await self.post("door", f"📣 Word around town: {text}", kind="system")
+        bus.publish(self.clock_event())
+
+    async def clear_god(self) -> None:
+        if not self.god:
+            return
+        self.god = None
+        for t in self.threads.values():
+            t.tension = 0.0
+        async with Session() as s:
+            await s.execute(delete(SimState).where(SimState.key == "god"))
+            await s.commit()
+        await self.post("door", "📣 The buzz has died down.", kind="system")
+        bus.publish(self.clock_event())
+
+    def control(self, action: str, speed: float | None = None, extra_budget: float | None = None,
+                crowd: float | None = None) -> None:
+        if action == "pause":
+            self.clock.pause()
+        elif action == "resume":
+            if extra_budget:
+                usage.budget = usage.spent_today + extra_budget
+            if usage.over_budget() and settings.llm_mode == "live":
+                self.halt("Budget still exhausted. Add budget to resume.")
+                return
+            self.budget_paused = False
+            self.banner = ""
+            self.clock.resume()
+            bus.publish({"type": "banner", "text": ""})
+        elif action == "speed" and speed:
+            self.clock.set_speed(speed)
+        elif action == "crowd" and crowd:
+            self.crowd = max(0.3, min(crowd, 3.0))
+        bus.publish(self.clock_event())

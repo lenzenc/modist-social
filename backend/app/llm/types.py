@@ -1,0 +1,57 @@
+from dataclasses import dataclass, field
+from typing import Protocol
+
+
+@dataclass
+class TurnRequest:
+    """Everything one utterance call needs. `world`/`persona` are the cacheable prefix."""
+
+    person_id: str
+    person_name: str
+    world: str
+    persona: str
+    context: str
+    # Used only by the mock backend.
+    last_line: str = ""
+    wants_leave: bool = False
+    location: str = "bar"
+    others: list[str] = field(default_factory=list)
+    kind: str = "chat"  # chat | order | staff
+    is_bartender: bool = False
+    again: bool = False  # a repeat order
+    event: str = ""  # God Mode event this chat is about, if any
+    stance: str = ""  # this person's stance on it: feels | pushback | mixed | shrug
+    heat: float = 0.0  # how hot the event is right now, 0..1
+    tension: float = 0.0  # how heated this chat has got between opposing sides
+    mode: str = "normal"  # react | normal | story: how long this line should be
+    mood: float = 0.0
+    buzz: float = 0.0
+    battery: float = 1.0
+    excuse: str = ""  # why this person should bow out of the chat this turn
+
+
+@dataclass
+class Utterance:
+    say: str
+    action: str = "none"  # none | leave | move | introduce | excuse
+    target: str = ""
+    lookup: str = ""
+    drink: str = ""  # exact menu name when ordering or pouring a specific drink
+    thought: str = ""  # a private thought that nobody hears
+    mood: str = ""  # how they feel after this line: good | fine | meh | annoyed | down
+
+
+class LLM(Protocol):
+    async def speak(self, req: TurnRequest) -> Utterance | None: ...
+
+    async def summarize(self, transcript: str, roster: str) -> dict | None: ...
+
+    async def news(self, city: str, date_text: str) -> list[str]: ...
+
+    async def lookup(self, query: str, city: str) -> str | None: ...
+
+    async def persona(self, brief: str) -> dict | None: ...
+
+    async def reflect(self, digest: str) -> dict | None: ...
+
+    async def classify(self, event: str, roster: str) -> dict | None: ...

@@ -1,0 +1,654 @@
+jobs:
+  - line cook at a hotel restaurant
+  - long-haul truck driver
+  - elementary school teacher
+  - HVAC technician
+  - dental hygienist
+  - accountant at a mid-size firm
+  - freelance graphic designer
+  - bus driver for Metro Transit
+  - union electrician
+  - physical therapist
+  - grad student in hydrology
+  - retired postal carrier
+  - real estate agent
+  - paramedic
+  - warehouse supervisor
+  - high school band director
+  - barista and part-time poet
+  - plumber with his own van
+  - pharmacy technician
+  - IT help desk analyst
+  - retired machinist
+  - nursing home aide
+  - bike shop mechanic
+  - insurance claims adjuster
+  - Uber and DoorDash driver
+  - public defender
+  - night-shift security guard
+  - bakery owner
+  - landscape crew foreman
+  - radiology technician
+  - community college adjunct
+  - software tester
+  - social worker for the county
+  - hair stylist with a chair rental
+  - carpenter doing remodels
+  - middle school counselor
+  - tattoo artist
+  - library assistant
+  - produce buyer for a co-op
+  - airline baggage handler
+  - property manager
+  - court reporter
+  - wedding photographer
+  - retired Navy mechanic
+  - event caterer
+  - city water department worker
+  - pediatric nurse
+  - auto body painter
+  - bank teller
+  - data analyst at a medical device company
+  - food truck owner
+  - massage therapist
+  - undergrad studying nursing
+  - union stagehand
+  - dog groomer
+  - mortgage loan officer
+  - substitute teacher
+  - sales rep for a packaging company
+  - welder at a fabrication shop
+  - veterinary technician
+  - retired dairy farmer
+  - paralegal
+  - ride-share mechanic
+  - non-profit grant writer
+  - barber
+  - tax preparer, seasonal
+  - line worker at a food plant
+  - ESL tutor
+  - home health aide
+  - car salesman
+  - copy editor at a regional magazine
+  - laboratory technician
+  - retired principal
+  - flooring installer
+  - restaurant server and aspiring chef
+  - parking enforcement officer
+  - mail-order candle maker
+  - snowplow operator
+  - architect's drafter
+  - assistant manager at a hardware store
+  - fitness instructor
+  - medical billing specialist
+  - roofer
+  - church custodian
+  - junior web developer
+  - retired steelworker
+  - apartment maintenance tech
+  - hospice chaplain
+  - stay-at-home dad with a side hustle
+  - sound engineer
+traits:
+  - dry humor
+  - overly honest
+  - restless
+  - easily amused
+  - quietly competitive
+  - generous to a fault
+  - skeptical of hype
+  - warm but guarded
+  - chronically early
+  - talks with hands
+  - fiercely loyal
+  - slow to trust
+  - always curious
+  - mildly sarcastic
+  - soft-spoken
+  - a bit nosy
+  - cheerfully blunt
+  - perpetually tired
+  - big-hearted
+  - anxious planner
+  - easygoing
+  - stubborn streak
+  - good listener
+  - loud laugher
+  - deeply practical
+  - daydreamer
+  - detail obsessed
+  - self-deprecating
+  - sentimental
+  - low-key intense
+  - natural organizer
+  - shy at first
+  - quick to joke
+  - old soul
+  - thinks out loud
+  - fidgety
+  - very polite
+  - mischievous
+  - gently argumentative
+  - dependable
+  - a little vain
+  - bookish
+  - never sits still
+  - compulsive helper
+  - wry observer
+  - overshares fast
+  - careful with words
+  - proud of small wins
+  - impatient
+  - open-minded
+  - mildly paranoid
+  - hopeless romantic
+  - unbothered
+  - prone to tangents
+  - tender-hearted
+  - sharp-tongued
+  - fond of rules
+  - rebellious streak
+  - nostalgic
+  - gruff but kind
+  - excitable
+  - steady and calm
+  - always hungry
+  - secretly sensitive
+  - people pleaser
+  - independent to the bone
+  - lightly superstitious
+  - over-prepared
+  - terrible at small talk
+  - remembers everything
+  - forgets names
+  - deadpan delivery
+  - bursts of enthusiasm
+  - slightly cynical
+  - earnestly curious
+  - protective of friends
+  - talks too fast
+  - thoughtful pauser
+  - low tolerance for nonsense
+  - trusting by default
+  - quietly ambitious
+  - playfully teasing
+  - humble to a fault
+  - fussy about details
+  - adventurous eater
+  - restless thinker
+  - lets things go
+  - holds a grudge
+  - always the designated driver
+  - tells long stories
+politics:
+  - progressive
+  - fiscally conservative
+  - apolitical, just wants good roads
+  - libertarian-leaning
+  - union Democrat
+  - moderate who dislikes both parties
+  - socially liberal, fiscally cautious
+  - rural-raised conservative
+  - independent, votes by candidate
+  - environmentalist
+  - small-government Republican
+  - politically burned out
+  - pragmatic centrist
+  - left-leaning but tired of arguing
+interests:
+  - trail running
+  - sourdough baking
+  - vinyl records
+  - fantasy football
+  - birdwatching
+  - home brewing
+  - pickleball
+  - board game nights
+  - thrifting
+  - canoeing the Boundary Waters
+  - gardening native plants
+  - cycling the greenway
+  - true crime podcasts
+  - cross-stitch
+  - used bookstores
+  - hockey
+  - indie film
+  - fishing for walleye
+  - camping
+  - woodworking
+  - karaoke
+  - cooking Somali dishes
+  - retro video games
+  - sewing
+  - trivia nights
+  - home renovation
+  - pottery
+  - roller derby
+  - disc golf
+  - fixing old motorcycles
+  - stand-up comedy
+  - tabletop RPGs
+  - foraging mushrooms
+  - Vikings football
+  - ice fishing
+  - curling
+  - amateur astronomy
+  - genealogy
+  - volunteering at the food shelf
+  - coffee roasting
+  - baking pies
+  - Minneapolis lakes
+  - lowbrow horror movies
+  - crossword puzzles
+  - church choir
+  - learning guitar
+  - learning Spanish
+  - Hmong storytelling
+  - urban sketching
+  - film photography
+  - rock climbing gyms
+  - Premier League soccer
+  - Timberwolves basketball
+  - Twins baseball
+  - Lynx basketball
+  - nordic skiing
+  - snowshoeing
+  - kayaking
+  - hot sauce making
+  - fermenting vegetables
+  - cheese tasting
+  - live local music
+  - bluegrass jams
+  - slam poetry
+  - documentary films
+  - car shows
+  - model trains
+  - thrift store furniture flipping
+  - beekeeping
+  - bowling league
+  - darts
+  - cribbage
+  - euchre
+  - rummage sales
+  - cooking shows
+  - sci-fi novels
+  - history podcasts
+  - gym lifting
+  - yoga
+  - swing dancing
+  - salsa dancing
+  - local politics
+  - city council meetings
+  - bird-feeder building
+  - backyard chickens
+  - tool libraries
+  - repair cafes
+  - making zines
+  - screen printing
+  - bookbinding
+  - baking bread
+  - mixing cocktails
+  - wine tasting
+  - food truck hunting
+  - scenic drives
+  - road trip planning
+  - nature photography
+  - minor league baseball
+  - state fair food
+  - rec-league softball
+  - volleyball
+  - swimming laps
+  - open-water swimming
+  - bouldering
+  - running a 10K
+  - chess
+  - 'Magic: The Gathering'
+  - anime
+  - K-pop
+  - country music
+  - jazz clubs
+  - classical piano
+  - drumming
+  - sketch comedy
+  - museum free days
+  - cooking for friends
+  - meal prepping
+  - couponing
+  - antique malls
+  - gravel biking
+quirks:
+  - rates every beer out of 10 in a notes app
+  - always orders the smallest pour first
+  - arrives exactly ten minutes before opening
+  - sketches the tap handles on napkins
+  - refuses to sit with their back to the door
+  - saves every coaster
+  - reads the entire menu aloud
+  - tips in crisp bills only
+  - brings their own pen for trivia
+  - photographs every glass before drinking
+  - sits in the same stool every time
+  - taps the bar twice before ordering
+  - keeps a tiny notebook of overheard quotes
+  - never takes off their winter hat
+  - hums while deciding
+  - asks the bartender for the story behind each beer
+  - splits every snack into equal pieces
+  - checks the weather forecast out loud
+  - wears the same flannel every visit
+  - folds napkins into little boats
+  - always asks what the dog's name is
+  - orders water before anything else
+  - counts the ceiling lights when bored
+  - checks their phone only on the hour
+  - brings leftovers to share
+  - clinks glasses with everyone nearby
+  - quotes old movie lines
+  - tells strangers about the day's commute
+  - carries a pocket-size chess set
+  - always leaves exactly at closing time minus fifteen
+  - asks for extra glass rinses
+  - writes poems on receipts
+  - swirls the glass longer than needed
+  - mentions their sister in every conversation
+  - rearranges the condiments
+  - tries to guess the ABV by taste
+  - does crossword clues out loud
+  - carries a canvas tote with a broken zipper
+  - wears mismatched socks on purpose
+  - always wants the window seat
+  - sniffs every pour twice
+  - keeps score of the bar's dart games
+  - finishes strangers' sentences
+  - saves the last sip for last
+  - brings a small bell to ring at good news
+  - asks for a taste of everything
+  - whistles through the first beer
+  - stacks coasters into towers
+  - only drinks from the glass with the handle
+  - tests each stool for wobbling
+  - reads the label like a novel
+  - draws tiny maps of the neighborhood
+  - sets a phone timer for every drink
+  - borrows pens and never returns them
+  - puts a lime in everything
+  - carries a thermos of their own coffee
+  - leaves tiny origami on the bar
+  - asks how long the keg has been tapped
+  - knows every regular's usual order
+  - wipes the bar before leaving
+  - wears sunglasses indoors until the second beer
+  - sings along under their breath
+  - tells the same joke every visit
+  - nods at everyone who walks in
+  - keeps one earbud in
+  - dips fries into the foam
+  - only orders on even-numbered visits
+  - brings a book and never opens it
+  - squints at the chalkboard menu
+  - shakes the bartender's hand each time
+voices:
+  - slow and thoughtful, lots of pauses
+  - fast and clipped
+  - warm and rumbling
+  - bright and chatty
+  - dry and understated
+  - soft, almost a murmur
+  - loud and cheerful
+  - sing-song with rising endings
+  - flat and deadpan
+  - gravelly from years of shouting over machines
+  - precise, like reading a report
+  - rambling, with many asides
+  - gentle, with a teacher's patience
+  - teasing and playful
+  - low and steady
+  - breathless when excited
+  - careful, choosing each word
+  - blunt, no padding
+  - laughs mid-sentence
+  - questioning, ending most lines up
+  - formal and polite
+  - sleepy drawl
+  - crisp and businesslike
+  - nasal and nervous
+  - confiding, leaning in
+  - booming and theatrical
+  - mumbles then repeats louder
+  - earnest and open
+  - wry, with a half-smile
+  - quick and sarcastic
+  - sweet and unhurried
+  - matter-of-fact
+  - chatty with a stutter when excited
+  - musical, with a bit of an accent
+  - sharp and witty
+  - tired and monotone
+  - excitable with big gestures
+  - quiet until the second beer
+  - measured, like a sports commentator
+  - folksy, all stories
+lives:
+  - Just moved into an apartment two blocks away and is still finding local places.
+  - Recently started a job nearby and wanted somewhere to decompress after work.
+  - Dropped by after a friend raved about the place for weeks.
+  - Recently turned 21 and is exploring the local beer scene.
+  - Between jobs and filling the afternoons with walks around the neighborhood.
+  - Visiting from out of town and staying with family down the street.
+  - Recently finished a long shift and passed by while walking home.
+  - Freshly out of a long relationship and trying new spots alone.
+  - Planning a small gathering and scouting a place to hold it.
+  - Recently retired and learning how to spend weekday afternoons.
+  - Moved back to Minneapolis after years away and relearning the city.
+  - Waiting out a laundromat cycle next door.
+  - Doing a neighborhood walk to find the best places for visiting parents.
+  - Training for a race and treating the taproom as a post-run reward.
+  - Following a coworker's recommendation from the break room.
+  - Recently adopted a dog and is looking for patios that allow one.
+  - Biked past the building for months before finally stopping in.
+  - Wanted to try local beer after a tour of the brewery district.
+  - Recently started a night class at the community college up the street.
+  - Escaping a noisy apartment to get some reading done.
+  - Attending a friend's birthday and arrived early.
+  - Recently signed a lease on a studio nearby.
+  - Drifted in while waiting for a car repair down the block.
+  - Got a gift card for the taproom and is finally using it.
+  - Meeting an online friend in person for the first time.
+  - Recently moved in with a partner and needs a spot of their own.
+  - Spotted the string lights from the bus window and decided to stop.
+  - Trying to make friends after a cross-country move.
+  - Dropped in after an appointment at the clinic across the street.
+  - Recently quit a stressful job and is rediscovering free evenings.
+  - Heard about the taproom from a podcast on local business.
+  - Needed an excuse to leave the house after a long winter.
+  - Celebrating a small promotion with a quiet drink.
+  - Scouting new venues for a monthly book club.
+  - Recently moved from a small town and finding the city overwhelming but exciting.
+  - Showing a visiting cousin around the neighborhood.
+  - Fixing up an old house nearby and needing a break from dust and noise.
+  - Looking for somewhere low-key after a week of caring for a sick relative.
+  - Recently joined a rec-league team that meets here afterward.
+  - Lost a bet with a friend and owes the first round.
+  - Took a wrong turn on a bike ride and ended up on the patio.
+  - Recently widowed and encouraged by a neighbor to get out more.
+  - Just finished final exams and wants to celebrate quietly.
+  - Picked up a part-time gig at the venue next door.
+  - Recently started remote work and is craving a place with other humans.
+  - Following a trail of local reviews to find the best lagers in the city.
+  - Dropped in to escape a sudden rainstorm.
+  - Just got dropped off by a rideshare after a canceled plan.
+  - Responding to a flyer left on their windshield.
+  - Recently started dating someone who lives in the neighborhood.
+  - Meeting a coworker to talk through a new project.
+  - Looking for the kind of place a grandfather used to frequent in this building's earlier life.
+  - Recently moved to Minnesota for a spouse's job and has no local haunts yet.
+  - Taking a break from a long day of apartment hunting.
+  - Recently inherited a motorcycle and is riding it everywhere.
+  - Heard the trivia night was good and came to check it out.
+  - Passing time before a show at a nearby theater.
+  - Recently began walking more after a doctor's advice and looped through here.
+  - Visiting after a friend's recommendation at a block party.
+  - Waiting for the snow to stop before driving home.
+takes:
+  - hazy IPAs are a fad
+  - lagers are underrated
+  - stouts belong in October, not July
+  - sours are just spoiled beer with good PR
+  - the Twins will never win a title in this lifetime
+  - Vikings fans deserve a refund on hope
+  - winter is character-building
+  - winter is just too long
+  - Minnesota nice is mostly passive aggression
+  - light rail is the best thing the city ever built
+  - buses are fine, light rail is overrated
+  - patios are the entire point of summer
+  - tater tot hotdish is a perfect meal
+  - hotdish is just casserole with an accent
+  - the state fair food is overpriced and perfect
+  - you can tell a lot about a person by their coffee order
+  - pilsners are the most honest beer
+  - double IPAs are just bitter syrup
+  - nitro is a gimmick
+  - nitro stouts are the pinnacle of drinking
+  - canned beer beats bottled beer
+  - tap beer always beats cans
+  - hockey is the only real sport here
+  - soccer is finally catching on in the Twin Cities
+  - bike lanes make the city better
+  - bike lanes just make traffic worse
+  - remote work is great
+  - offices are where good ideas happen
+  - everyone should work retail once
+  - a good sandwich beats any fancy dinner
+  - Jucy Lucys are overrated
+  - food trucks beat restaurants
+  - brunch is a scam
+  - brunch is the best meal
+  - Minneapolis beats St. Paul every time
+  - St. Paul is the better twin
+  - lakes make this city worth the taxes
+  - road construction never ends here
+  - snow tires are not optional
+  - salting the sidewalk is a moral duty
+  - cold plunges are a personality, not a health practice
+  - barley wines are for patient people
+  - fruit in beer is a crime
+  - a good brown ale never goes out of style
+  - the best beer is whatever your friend is pouring
+  - beer snobs ruin the fun
+  - tipping culture has gone too far
+  - you should always tip at least twenty percent
+  - cash is still king
+  - cards are the only sane way to pay
+  - the library is the best free thing in town
+  - public schools need more funding
+  - kids should learn a trade
+  - college is overpriced
+  - the Timberwolves will break your heart again
+  - the Lynx are the best team in town
+  - fall is the only good season
+  - spring doesn't exist here
+  - summer festivals are overcrowded
+  - sunsets over the lakes beat anything
+  - sauna is the cure for everything
+  - cabins are overrated
+  - camping is better than hotels
+  - ice fishing is just sitting in the cold
+  - coffee shops are the new bars
+  - bars are the last honest meeting spot
+  - good bread matters more than good wine
+  - cooking at home beats any restaurant
+  - walking is the best way to see a city
+  - cars ruin neighborhoods
+  - parking is the real crisis
+  - trivia teams should never share answers
+  - karaoke is a gift to humanity
+  - live music deserves better pay
+  - neighborhood bars are an endangered species
+  - craft beer has too many options
+  - the old standbys were better
+  - IPA should be bitter, not juicy
+  - malty beers are comfort food
+  - beer and pizza is a sacred pairing
+  - cheese curds are best fresh
+  - wild rice soup beats chili
+  - baked goods are better from small bakeries
+  - public transit should be free
+  - snow days are childhood magic
+  - salted caramel ruins things
+  - the only good dessert is pie
+  - rain checks are underrated
+  - a good flannel beats any jacket
+  - warm beer is a personal failing
+avoid:
+  - their ex
+  - work after 8pm
+  - their old job
+  - money troubles
+  - their family back home
+  - their health
+  - politics at the bar
+  - their commute
+  - the neighbors upstairs
+  - their college days
+  - age
+  - their weight
+  - their landlord
+  - religion
+  - their love life
+  - the weather forecast
+  - their hometown
+  - their dog's vet bills
+  - sports bets
+  - their diet
+  - last year
+  - their student loans
+  - who they voted for
+  - their sister
+  - the move
+  - their salary
+  - what they do on weekends
+  - how they met their partner
+  - their car trouble
+  - their plans for the future
+tics:
+  - says "honestly though" before opinions
+  - trails off with "anyway"
+  - ends sentences with "you know?"
+  - starts answers with "so..."
+  - says "right?" after every claim
+  - laughs before delivering the punchline
+  - repeats the last word someone says
+  - begins with "okay, but"
+  - says "that's wild" at everything
+  - uses "friend" as a greeting
+  - adds "or whatever" to statements
+  - says "oh for sure" when agreeing
+  - answers questions with a question
+  - says "I mean" constantly
+  - says "ope" when bumping into things
+  - says "uff da" at bad news
+  - prefaces stories with "true story"
+  - says "no, totally" while disagreeing
+  - uses "buddy" for everyone
+  - says "fair enough" often
+  - narrates their own actions
+  - says "long story short" then tells a long story
+  - adds "not gonna lie" before opinions
+  - says "listen" before a point
+  - uses sports metaphors for everything
+  - says "you betcha" sparingly
+  - whispers the punchline
+  - says "huh" thoughtfully
+  - says "classic" at small disasters
+  - ends with "that's just me though"
+  - says "by the way" unprompted
+  - uses "folks" for any group
+  - says "well" before every sentence
+  - says "oh man" at news
+  - says "for real" for emphasis
+  - clicks their tongue when thinking
+  - says "hold on, hold on" before a story
+  - says "weird, right?" after facts
+  - says "mm-hm" constantly
+  - says "exactly" before the other person finishes

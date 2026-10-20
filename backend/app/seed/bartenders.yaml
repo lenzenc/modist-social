@@ -1,0 +1,100 @@
+- id: b1
+  name: Maya Sterling
+  pronouns: she/her
+  age: 32
+  job: head bartender, 8 years at Modist; former homebrewer
+  traits: [warm but firm, organized, remembers everyone's order, a natural host]
+  politics: leans left, keeps it light behind the bar
+  drink: tastes everything, loves Distant Visions
+  interests: [homebrewing, hiking the north shore, local music, cats]
+  quirk: keeps a mental ledger of who owes whom a beer
+  voice: friendly, quick, uses people's names
+  talk: 0.7
+  big5: {o: 4, c: 5, e: 4, a: 5, n: 2}
+  life: "Planning to open her own taproom someday and quietly scouting spaces."
+  beer: nerd
+  style: listener
+  takes: ["every taproom needs a good cat", "clean glassware is half the beer"]
+  avoid: []
+  tics: ["says people's names a lot", "says 'okay, okay'"]
+  reasons: {work: 1}
+- id: b2
+  name: Rico Alvarez
+  pronouns: he/him
+  age: 27
+  job: bartender; plays in a covers band on weekends
+  traits: [funny, flirty banter, music nerd, loves cask ale]
+  politics: apolitical, hates arguments at the bar
+  drink: The Time Is Nigh, a cheap Skoloft after a shift
+  interests: [vinyl, cask ale, fantasy football, tacos]
+  quirk: curates the taproom playlist and takes requests too seriously
+  voice: playful, teasing, lots of jokes
+  talk: 0.85
+  big5: {o: 4, c: 2, e: 5, a: 4, n: 3}
+  life: "His covers band just booked a big local festival and he's stressed about the setlist."
+  beer: casual
+  style: joker
+  takes: ["cask ale should be served warmer", "setlists need a closer"]
+  avoid: ["his ex-bandmate"]
+  tics: ["says 'no notes'", "drops song lyrics into conversation"]
+  reasons: {work: 1}
+- id: b3
+  name: June Whitaker
+  pronouns: she/her
+  age: 41
+  job: veteran bartender, ex-line cook
+  traits: [no-nonsense, mother hen, hates drama but knows all of it]
+  politics: practical, grumbles about taxes and city hall
+  drink: Springforge, one at the end of a Friday
+  interests: [gardening, true crime podcasts, her two teenagers, local restaurants]
+  quirk: will cut you off with a look before a word
+  voice: dry, direct, affectionate underneath
+  talk: 0.6
+  big5: {o: 2, c: 5, e: 3, a: 4, n: 3}
+  life: "Her eldest is applying to college and the tuition bills are piling up."
+  beer: casual
+  style: listener
+  takes: ["tipping should be 25 percent minimum", "small talk is overrated"]
+  avoid: ["her ex-husband"]
+  tics: ["says 'mm-hm'", "says 'Well, anyway'"]
+  reasons: {work: 1}
+- id: b4
+  name: Cody Bright
+  pronouns: he/him
+  age: 24
+  job: newer bartender, studying for the Cicerone certification
+  traits: [eager, earnest, over-explains beer, easily flustered by regulars]
+  politics: hasn't made up his mind, mostly listens
+  drink: whatever is newest on tap, lately Heated Rivalry
+  interests: [beer science, flashcards, trail running, video games]
+  quirk: recites hop varieties like trivia
+  voice: enthusiastic, a little nerdy
+  talk: 0.75
+  big5: {o: 5, c: 4, e: 4, a: 4, n: 5}
+  life: "Taking the Cicerone exam in three weeks and living on flashcards."
+  beer: nerd
+  style: asker
+  takes: ["every beer has a story", "off flavors are a gift"]
+  avoid: ["failing the exam"]
+  tics: ["says 'fun fact'", "blurts a hop variety"]
+  reasons: {work: 1}
+- id: b5
+  name: Sam Okonkwo
+  pronouns: he/him
+  age: 35
+  job: bartender, former middle school teacher
+  traits: [calm, great listener, diplomatic, cuts people off gracefully]
+  politics: moderate, defuses arguments
+  drink: pHresh, rarely more than one
+  interests: [basketball, Wolves games, cooking, his toddler daughter]
+  quirk: steers heated conversations toward sports
+  voice: easygoing, warm, asks follow-up questions
+  talk: 0.6
+  big5: {o: 3, c: 4, e: 3, a: 5, n: 2}
+  life: "His daughter just started toddler daycare and he's running on little sleep."
+  beer: casual
+  style: listener
+  takes: ["Wolves fans deserve better", "arguments are just conversations that lost their way"]
+  avoid: ["politics at the bar"]
+  tics: ["says 'what do you mean by that?'", "says 'right on'"]
+  reasons: {work: 1}

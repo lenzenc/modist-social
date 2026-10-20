@@ -1,0 +1,45 @@
+# Pre-existing ties. familiarity 0..100, affinity -100..100. Everyone else starts as strangers.
+# Bartenders (b*) know regulars as "regular" (familiarity from visit frequency).
+- {a: p01, b: p37, kind: close friends, familiarity: 85, affinity: 70, notes: "met through the hospital; Yasmin fills Dana's weird-hours prescriptions and they trade work horror stories"}
+- {a: p04, b: p30, kind: old friends, familiarity: 80, affinity: 60, notes: "Gus and Pete have drunk here every afternoon for years; Pete's dad jokes wear on Gus but he'd never say so"}
+- {a: p04, b: p08, kind: friendly rivals, familiarity: 55, affinity: 15, notes: "constant Vikings-vs-Packers trash talk; Gus secretly respects that Jake rebuilt his deck for free"}
+- {a: p02, b: p28, kind: coworkers, familiarity: 75, affinity: 65, notes: "teach at the same high school; Andre thinks Marcus talks too long"}
+- {a: p02, b: p12, kind: friends, familiarity: 65, affinity: 55, notes: "Walt mentors Marcus on local history; Marcus gently ignores Walt's corrections"}
+- {a: p03, b: p36, kind: homebrew pals, familiarity: 60, affinity: 45, notes: "Caleb gave Priya yeast cultures; they geek out about brewing together"}
+- {a: p05, b: p21, kind: friends, familiarity: 70, affinity: 60, notes: "Grace is Leila's best customer; Grace keeps trying to set Leila's brother up"}
+- {a: p05, b: p25, kind: friends, familiarity: 65, affinity: 55, notes: "kids on the same soccer team; they swap school gossip"}
+- {a: p07, b: p29, kind: wary sources, familiarity: 50, affinity: 10, notes: "Hannah keeps fishing for city hall leaks; Ruth never confirms anything"}
+- {a: p07, b: p32, kind: work acquaintances, familiarity: 60, affinity: 40, notes: "Omar's road projects cross Ruth's boss's desk"}
+- {a: p07, b: p34, kind: adversaries, familiarity: 45, affinity: -30, notes: "Vince lobbied Ruth's council member over the zoning vote"}
+- {a: p06, b: p40, kind: friends, familiarity: 70, affinity: 60, notes: "Tommy is a loyal customer of Theo's bike shop; Theo fixes his bikes on credit"}
+- {a: p09, b: p35, kind: friends, familiarity: 55, affinity: 50, notes: "Ingrid treated Ellie's late dog; Ellie still sends her cookies"}
+- {a: p10, b: p22, kind: industry friends, familiarity: 60, affinity: 45, notes: "Hector once worked a brunch shift for Raj; they talk kitchen gossip"}
+- {a: p13, b: p34, kind: business allies, familiarity: 65, affinity: 35, notes: "swap leads; Carla finds Vince exhausting but useful"}
+- {a: p14, b: p36, kind: industry frenemies, familiarity: 55, affinity: 20, notes: "Dev would love to distribute Caleb's brewery; they gossip about every brewer in town"}
+- {a: p14, b: p23, kind: business partners, familiarity: 50, affinity: 40, notes: "Kelsey photographs Dev's accounts for social media"}
+- {a: p15, b: p26, kind: ex-partners, familiarity: 75, affinity: 5, notes: "dated two years; ended awkwardly; they still run into each other at shows"}
+- {a: p16, b: p33, kind: adversaries, familiarity: 40, affinity: -35, notes: "they clash over climate policy and the water rumors; both are too stubborn to leave the bar"}
+- {a: p17, b: p37, kind: trivia teammates, familiarity: 55, affinity: 50, notes: "Mei recruited Yasmin for Wednesday trivia"}
+- {a: p18, b: p38, kind: friends, familiarity: 60, affinity: 55, notes: "Bo checks in on Doug since the divorce and brings him chili"}
+- {a: p19, b: p01, kind: acquaintances, familiarity: 35, affinity: 25, notes: "met through a case involving the ER; both respect the other's exhaustion"}
+- {a: p24, b: p30, kind: friends, familiarity: 65, affinity: 55, notes: "Dmitri and Pete swap city transit and traffic gossip"}
+- {a: p29, b: p12, kind: mentor, familiarity: 60, affinity: 50, notes: "Walt edited Hannah's early stories; he's proud and critical in equal parts"}
+- {a: p31, b: p08, kind: coworker friends, familiarity: 55, affinity: 45, notes: "Jake subs HVAC jobs to Tessa's company; he looks out for her"}
+- {a: p11, b: p32, kind: acquaintances, familiarity: 35, affinity: 30, notes: "Naomi's flood research touches Omar's drainage projects"}
+- {a: p20, b: p18, kind: neighbors, familiarity: 40, affinity: 40, notes: "Owen lives upstairs from Bo and was told to 'ask the bartender' for beer advice"}
+- {a: p39, b: p21, kind: friends, familiarity: 50, affinity: 45, notes: "Grace attends Camille's Sunday yoga class"}
+- {a: p25, b: p28, kind: acquaintances, familiarity: 45, affinity: 35, notes: "Andre coaches Beth's oldest son"}
+- {a: p35, b: p03, kind: friends, familiarity: 45, affinity: 50, notes: "Ellie shared her husband's recipe notebook with Priya"}
+- {a: p27, b: p14, kind: acquaintances, familiarity: 40, affinity: 15, notes: "Mags thinks Dev oversells; Dev keeps pitching her imported lambics"}
+# Bartender-regular ties: familiarity only, kind "regular".
+- {a: b1, b: p03, kind: regular, familiarity: 70, affinity: 55, notes: "Maya and Priya swap homebrew recipes"}
+- {a: b2, b: p26, kind: regular, familiarity: 65, affinity: 50, notes: "Rico and Silas talk gear and local shows"}
+- {a: b3, b: p04, kind: regular, familiarity: 80, affinity: 60, notes: "June pours Gus his Pils before he sits down"}
+- {a: b3, b: p30, kind: regular, familiarity: 75, affinity: 60, notes: "June pretends not to laugh at Pete's jokes"}
+- {a: b4, b: p36, kind: regular, familiarity: 45, affinity: -5, notes: "Cody and Caleb compare notes on beer styles; Cody is still learning"}
+- {a: b5, b: p38, kind: regular, familiarity: 60, affinity: 55, notes: "Sam lets Doug talk and quietly cuts him off at two"}
+- {a: b1, b: b2, kind: coworkers, familiarity: 70, affinity: 55, notes: "close coworkers; Maya manages Rico's tendency to chat too long"}
+- {a: b2, b: b3, kind: coworkers, familiarity: 65, affinity: 45, notes: "June keeps Rico honest"}
+- {a: b3, b: b4, kind: coworkers, familiarity: 60, affinity: 50, notes: "June is training Cody on the cut-off policy"}
+- {a: b4, b: b5, kind: coworkers, familiarity: 55, affinity: 45, notes: "Sam is patient with Cody's flashcards"}
+- {a: b1, b: b5, kind: coworkers, familiarity: 65, affinity: 50, notes: "friendly; both formerly left the 'real world' jobs"}
