@@ -17,7 +17,7 @@ from app.llm.usage import usage
 from app.seed.loader import color_for
 from app.sim import environment, human, newcomers
 from app.sim import god as godmode
-from app.sim import menu, sales
+from app.sim import menu, sales, seating
 from app.sim.clock import DEFAULT_START, SimClock, is_open, launch_time, open_close
 from app.sim.schedule import ARRIVAL_BOOST, arrival_rate, on_shift
 from app.sim.social import Social
@@ -564,17 +564,30 @@ class Director:
         weights = [1.0 + self.social.rel(p.id, b.id).familiarity / 40 + (1.5 if self.bartender_load(b) == 0 else 0) for b in bts]
         return self.rng.choices(bts, weights)[0]
 
-    def seat_chance(self, p: PersonState) -> float:
-        if len(self.stools_taken()) >= BAR_STOOLS:
-            return 0.0
-        base = p.persona.get("bar_seat")
-        if base is None:
-            base = 0.2 + 0.25 * p.talk
-        if not any(q.present and q.id != p.id and self.social.rel(p.id, q.id).familiarity >= 35 for q in self.patrons()):
-            base += 0.2
-        if any(self.social.rel(p.id, b.id).familiarity >= 40 for b in self.bartenders_on()):
-            base += 0.15
-        return max(0.0, min(0.85, base))
+    def area_room(self) -> tuple[dict[str, int], dict[str, int]]:
+        """Free seats and total seats in each area."""
+        cap = {"bar": BAR_STOOLS, **{a: n * TABLE_SEATS for a, n in TABLES.items()}}
+        free = {"bar": BAR_STOOLS - len(self.stools_taken())}
+        for a in TABLES:
+            free[a] = cap[a] - len([q for q in self.patrons() if q.present and q.location == a and q.table is not None])
+        return free, cap
+
+    def choose_area(self, p: PersonState, no_bar: bool = False) -> str:
+        """Where this guest plans to spend the visit: see seating.area_weights."""
+        now = self.clock.now()
+        party = 1 + sum(1 for q in self.patrons()
+                        if q.id != p.id and self.social.rel(p.id, q.id).familiarity >= 55
+                        and (q.pending_arrival is not None
+                             or (q.present and q.arrived_at and now - q.arrived_at <= timedelta(minutes=20))))
+        lean = p.persona.get("bar_seat")
+        lean = 2 * lean if lean is not None else 0.75 + 0.5 * p.talk
+        g = environment.game_on(now)
+        fan = p.reason == "game" or bool(g and environment.fan_of(g.team, p.persona))
+        knows = any(self.social.rel(p.id, b.id).familiarity >= 40 for b in self.bartenders_on())
+        free, cap = self.area_room()
+        if no_bar:
+            free["bar"] = 0
+        return seating.pick_area(self.rng, seating.area_weights(min(party, 3), lean, knows, fan, now, free, cap))
 
     async def sit(self, p: PersonState, text: str, near: list[int] | None = None) -> bool:
         stool = self.free_stool(near)
@@ -859,10 +872,11 @@ class Director:
                     q.pending_arrival = now + timedelta(minutes=self.rng.uniform(5, 25))
         b = self.pick_bartender(p)
         if b:
-            seated = self.rng.random() < self.seat_chance(p) and await self.sit(
-                p, "{} pulls up a stool at the bar.", self.friends_on_stools(p) or None)
+            p.spot = self.choose_area(p)
+            seated = p.spot == "bar" and await self.sit(p, "{} pulls up a stool at the bar.", self.friends_on_stools(p) or None)
             await self.open_thread("bar" if seated else "ordering", "order", [p.id, b.id], max_turns=3, seated=seated)
         else:
+            p.spot = self.choose_area(p)
             p.next_drink_at = now + timedelta(minutes=10)
             await self.settle(p)
 
@@ -876,7 +890,7 @@ class Director:
             await self.leave_thread(t, p, f"{p.short} heads out.")
         await self.close_tab(p)
         p.present, p.location, p.thread_id, p.wants_leave, p.free_since, p.stool, p.drink = False, None, None, False, None, None, ""
-        p.table = None
+        p.table, p.spot = None, None
         p.return_to, p.next_drink_at = None, None
         await self.post("door", f"👋 {p.display} heads out.", kind="system")
         self.publish_presence()
@@ -886,25 +900,29 @@ class Director:
         if loc not in LOCATIONS or not p.present:
             return False
         if loc == "bar":
-            return p.seated or await self.sit(p, "{} grabs a stool at the bar.", self.friends_on_stools(p) or None)
-        p.location, p.free_since, p.stool = loc, self.clock.now(), None
+            ok = p.seated or await self.sit(p, "{} grabs a stool at the bar.", self.friends_on_stools(p) or None)
+            if ok:
+                p.spot = "bar"
+            return ok
+        p.location, p.free_since, p.stool, p.spot = loc, self.clock.now(), None, loc
         p.table = self.pick_table(loc, [p.id])
         await self.post(loc, f"{p.short} settles in at the {LOC_DESC[loc]}.", kind="system")
         self.publish_presence()
         return True
 
     async def settle(self, p: PersonState) -> None:
-        """After ordering, a guest drifts toward friends or a spot that suits them."""
-        friends = [q for q in self.patrons() if q.present and q.id != p.id and q.location
-                   and self.social.rel(p.id, q.id).familiarity >= 35]
-        if friends and self.rng.random() < 0.75:
+        """After ordering, a guest goes back to their spot for the visit; on a first drink they may follow a friend instead."""
+        free, _ = self.area_room()
+        loc = None
+        friends = [q for q in self.patrons() if q.present and q.id != p.id and q.location in LOCATIONS
+                   and free[q.location] > 0 and self.social.rel(p.id, q.id).familiarity >= 35]
+        if p.drinks <= 1 and friends and self.rng.random() < 0.5:
             weights = [self.social.rel(p.id, q.id).familiarity for q in friends]
             loc = self.rng.choices(friends, weights)[0].location
-        else:
-            loc = self.rng.choices(LOCATIONS, [0.45, 0.32, 0.23])[0]
+        loc = loc or p.spot or self.choose_area(p)
         p.free_since = self.clock.now()
         if loc == "bar" and not await self.move(p, "bar"):
-            loc = self.rng.choices(LOCATIONS[1:], [0.58, 0.42])[0]  # every stool is taken
+            loc = self.choose_area(p, no_bar=True)  # every stool is taken
         if loc != "bar" and loc != p.location:
             await self.move(p, loc)
 

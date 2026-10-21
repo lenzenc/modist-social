@@ -110,18 +110,17 @@ def _director():
     return d
 
 
-def test_seat_chance_bounds_and_full_bar():
+def test_full_bar_is_never_chosen_and_has_no_free_stool():
     from app.sim.state import BAR_STOOLS
 
     d = _director()
     p = d.people["p0"]
-    assert 0 < d.seat_chance(p) <= 0.85
     for i in range(BAR_STOOLS):
         q = PersonState(id=f"x{i}", name="X", short="X", display="X", role="patron", pronouns="", color="",
                         persona={}, present=True, stool=i)
         d.people[q.id] = q
-    assert d.seat_chance(p) == 0.0
     assert d.free_stool() is None
+    assert all(d.choose_area(p) != "bar" for _ in range(100))
 
 
 def test_stools_are_unique_and_prefer_neighbours():

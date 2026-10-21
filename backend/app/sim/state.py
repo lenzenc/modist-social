@@ -57,6 +57,7 @@ class PersonState:
     last_spoke: datetime | None = None
     stool: int | None = None  # set while sitting at the bar
     table: int | None = None  # table index within their area; None when standing
+    spot: str | None = None  # the area they chose for this visit (bar, inside-tables, patio)
     drink: str = ""  # what they are currently drinking (a menu name)
     drinks: int = 0  # drinks bought this visit
     drink_goal: int = 0  # how many they want this visit
