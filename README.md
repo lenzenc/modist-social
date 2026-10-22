@@ -68,7 +68,7 @@ During a visit each person carries a few moving numbers (`backend/app/sim/human.
 - **Social battery** drains as they talk (faster for the reserved) and recovers when they are left alone.
 - **Needs** such as the restroom, a phone call, some air, or a bite from the food truck.
 
-These change behaviour. They decide who joins or starts a chat, who speaks next, how fast people reply, and who escalates an argument. A tired or irritable person, or one with a need, *excuses themselves* from a chat and stays in the taproom (you can see Walt do it in the thread above). Solo guests scroll their phone or watch the game and turn down invitations. Each line also carries a private thought (shown in the profile, never said aloud) and a mood tag that feeds back into their state.
+These change behaviour. They decide who joins or starts a chat, who speaks next, how fast people reply, and who escalates an argument. A tired or irritable person, or one with a need, *excuses themselves* from a chat and stays in the taproom (you can see Sophie and Silas do it in the thread above). Solo guests scroll their phone or watch the game and turn down invitations. Each line also carries a private thought (shown in the profile, never said aloud) and a mood tag that feeds back into their state.
 
 ### How they sound
 Each turn is rolled as a quick reaction, a normal line, or a short story, depending on style, buzz, energy and mood. Now and then there is a human slip: mishearing, a distracted answer, a joke that doesn't land, a trailing off. The style rules in `backend/app/seed/world.md` list the tells of an assistant to avoid ("Great point", a question at the end of every line, repeating back what was just said, neat summing-up) and give good and bad examples.
