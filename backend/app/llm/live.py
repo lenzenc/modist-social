@@ -309,17 +309,23 @@ class AnthropicLLM:
             return self._text(resp) or None
         return None
 
-    async def news(self, city: str, date_text: str) -> list[str]:
+    async def news(self, city: str, date_text: str, recent: list[str]) -> list[str]:
+        seen = "".join(f"\n- {x}" for x in recent[:18])
         text = await self._search(
             f"Today is {date_text}. Search the web for the most recent news around {city}: 3 local news or "
             "politics items, 2 local events or sports results, and 1 craft beer industry item. "
+            + (f"These were already reported on earlier days, so do not repeat them or cover the same story:{seen}\n" if seen else "")
+            + "If the search turns up fewer than 6 genuinely new items, complete the 6 with plausible, low-stakes local "
+            "happenings for that date (a neighborhood event, a restaurant opening or closing, the weather, a local team "
+            "result, a brewery release). "
             "Reply with exactly 6 lines, each starting with '- ', each a single plain sentence of at most 25 "
-            "words with no citations or links.",
+            "words with no citations or links, and never mention the search itself.",
             max_tokens=900,
         )
         if not text:
             return []
-        return [ln[2:].strip() for ln in text.splitlines() if ln.startswith("- ")][:8]
+        lines = [ln[2:].strip() for ln in text.splitlines() if ln.startswith("- ")]
+        return [x for x in lines if not x.startswith("I ") and "search results" not in x][:8]
 
     async def lookup(self, query: str, city: str) -> str | None:
         return await self._search(

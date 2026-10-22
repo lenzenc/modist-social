@@ -77,8 +77,9 @@ async def test_news_resumes_pause_turn_and_parses_lines(llm):
     paused = resp(stop="pause_turn", content=[NS(type="server_tool_use")], searches=2)
     done = resp("- City delays vote.\n- Brewery wins medal.\nnoise line\n- Rain this weekend.", output_tokens=60)
     llm.client = StubClient(paused, done)
-    lines = await llm.news("Minneapolis, MN", "Monday")
+    lines = await llm.news("Minneapolis, MN", "Monday", ["Old story about parking."])
     assert lines == ["City delays vote.", "Brewery wins medal.", "Rain this weekend."]
+    assert "Old story about parking." in llm.client.calls[0]["messages"][0]["content"]
     assert llm.client.calls[0]["tools"][0]["type"] == "web_search_20250305"
     # The resume call replays the paused assistant turn.
     assert llm.client.calls[1]["messages"][-1]["role"] == "assistant"

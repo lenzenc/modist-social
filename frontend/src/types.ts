@@ -20,6 +20,7 @@ export interface Presence {
   drink?: string;
   stool?: number | null;
   table?: number | null;
+  party?: number | null;
 }
 
 export interface Msg {

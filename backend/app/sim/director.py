@@ -17,12 +17,12 @@ from app.llm.usage import usage
 from app.seed.loader import color_for
 from app.sim import environment, human, newcomers
 from app.sim import god as godmode
-from app.sim import menu, sales, seating
+from app.sim import groups, menu, sales, seating
 from app.sim.clock import DEFAULT_START, SimClock, is_open, launch_time, open_close
 from app.sim.schedule import ARRIVAL_BOOST, arrival_rate, on_shift
 from app.sim.social import Social
 from app.sim.state import (
-    BAR_STOOLS, LOC_DESC, LOCATIONS, MAX_GROUP, MAX_GROUP_BAR, TABLES, TABLE_SEATS, PersonState, ThreadState, display_name, short_name,
+    BAR_STOOLS, LOC_DESC, LOCATIONS, MAX_GROUP, MAX_GROUP_BAR, TABLES, TABLE_PAIRS, TABLE_SEATS, PartyState, PersonState, ThreadState, display_name, short_name,
 )
 
 log = logging.getLogger("director")
@@ -63,6 +63,8 @@ class Director:
         self.tasks: set[asyncio.Task] = set()
         self.shift: tuple[str, str] | None = None
         self.news_day = ""
+        self.news_for = ""
+        self.news_retry_at: datetime | None = None
         self.last_call_day = ""
         self.opened_day = ""
         self.closed_day = ""
@@ -71,6 +73,9 @@ class Director:
         self.visits: dict[str, dict] = {}  # pid -> {"n": visits so far, "last": ISO time of the latest}
         self.lives: dict[str, str] = {}  # pid -> how their life stands lately, from the nightly reflection
         self.generating = False  # a newcomer is being made right now
+        self.parties: dict[int, PartyState] = {}  # parties holding tables right now
+        self._party_seq = 0
+        self.naming: set[str] = set()  # names of newcomers being made right now
         self._env_prev: datetime | None = None
         self._env_flags: set[str] = set()
         self.budget_paused = False
@@ -124,7 +129,7 @@ class Director:
             await s.commit()
             rows = (await s.scalars(select(NewsItem).where(NewsItem.sim_day == today))).all()
         if rows:
-            self.news, self.news_day = [r.text for r in rows], today
+            self.news, self.news_day, self.news_for = [r.text for r in rows], today, today
         log.info("loaded %d people, sim time %s", len(self.people), self.clock.now())
 
     def spawn(self, coro) -> asyncio.Task:
@@ -162,7 +167,7 @@ class Director:
             "id": p.id, "name": p.name, "short": p.short, "display": p.display, "role": p.role,
             "pronouns": p.pronouns, "color": p.color, "job": p.persona.get("job", ""),
             "present": p.present, "location": p.location, "thread_id": p.thread_id, "seated": p.seated, "drink": p.drink,
-            "stool": p.stool, "table": p.table,
+            "stool": p.stool, "table": p.table, "party": p.party,
             "visits": self.visits.get(p.id, {}).get("n", 0), "walk_in": bool(p.persona.get("walkin")),
         }
 
@@ -186,7 +191,7 @@ class Director:
     def presence(self) -> list[dict]:
         return [
             {"id": p.id, "location": p.location, "thread_id": p.thread_id, "seated": p.seated, "drink": p.drink,
-             "stool": p.stool, "table": p.table}
+             "stool": p.stool, "table": p.table, "party": p.party}
             for p in self.people.values() if p.present
         ]
 
@@ -459,12 +464,20 @@ class Director:
         now = self.clock.now()
         if t.order_drink and (t.ordered or not t.again):
             await self.charge(guest, t.order_drink, bt, t)
+            for pid in t.party:  # the rest of the party's first round rides on the leader's order
+                q = self.people[pid]
+                if q.present and q.drinks == 0:
+                    await self.charge(q, menu.match(q.persona.get("drink", "")) or self.rng.choice(menu.names()), bt, t)
         elif t.again:
             # Passed on another: they want fewer drinks, and the bartender will not ask again right away.
             guest.drink_goal = max(guest.drinks, guest.drink_goal - 1)
             guest.next_drink_at = now + timedelta(minutes=30) if guest.drinks < guest.drink_goal else None
         else:
             guest.next_drink_at = now + timedelta(minutes=5)  # never settled on a drink; try again shortly
+        for pid in t.party:  # nobody in a party is left waiting on an order that never paid
+            q = self.people[pid]
+            if q.present and q.drinks == 0 and q.next_drink_at is None:
+                q.next_drink_at = now + timedelta(minutes=5)
 
     async def charge(self, p: PersonState, drink: str, bartender_id: str | None, t: ThreadState) -> None:
         now = self.clock.now()
@@ -537,12 +550,17 @@ class Director:
     def table_occupants(self, area: str, table: int) -> list[PersonState]:
         return [q for q in self.patrons() if q.present and q.location == area and q.table == table]
 
+    def held_tables(self, area: str, mine: set | frozenset = frozenset()) -> set[int]:
+        """Tables a party is holding in this area, other than the parties in `mine`."""
+        return {i for pt in self.parties.values() if pt.area == area and pt.id not in mine for i in pt.tables}
+
     def pick_table(self, area: str, group: list[str] | tuple = ()) -> int | None:
         """The emptiest table in the area that still has room for the group, or None (standing)."""
         n = TABLES.get(area, 0)
         need = max(1, len(group))
+        held = self.held_tables(area, {self.people[g].party for g in group if g in self.people} - {None})
         counts = [len([q for q in self.table_occupants(area, i) if q.id not in group]) for i in range(n)]
-        fits = [i for i in range(n) if counts[i] + need <= TABLE_SEATS]
+        fits = [i for i in range(n) if counts[i] + need <= TABLE_SEATS and i not in held]
         if not fits:
             return None
         return min(fits, key=lambda i: (counts[i], self.rng.random()))
@@ -570,6 +588,10 @@ class Director:
         free = {"bar": BAR_STOOLS - len(self.stools_taken())}
         for a in TABLES:
             free[a] = cap[a] - len([q for q in self.patrons() if q.present and q.location == a and q.table is not None])
+            # A party member up at the bar still has a seat waiting.
+            free[a] -= sum(1 for pt in self.parties.values() if pt.area == a for m in pt.members
+                           if self.people[m].present and not (self.people[m].location == a and self.people[m].table is not None))
+            free[a] = max(0, free[a])
         return free, cap
 
     def choose_area(self, p: PersonState, no_bar: bool = False) -> str:
@@ -828,13 +850,28 @@ class Director:
         if fact:
             p.pending_fact = fact[:400]
 
+    async def recent_news(self, day: str) -> list[str]:
+        async with Session() as s:
+            rows = (await s.scalars(select(NewsItem).where(NewsItem.sim_day < day).order_by(NewsItem.id.desc()).limit(18))).all()
+        return [r.text for r in rows]
+
     async def news_desk(self, day: str) -> None:
         if self.check_budget():
             return
-        lines = await self.llm.news(settings.brewery_city, self.clock.now().strftime("%A, %B %-d, %Y"))
+        now = self.clock.now()
+        recent: list[str] = []
+        try:
+            recent = await self.recent_news(day)
+            lines = await self.llm.news(settings.brewery_city, now.strftime("%A, %B %-d, %Y"), recent)
+        except Exception:
+            log.exception("news fetch failed")
+            lines = []
+        lines = [x for x in lines if x not in recent] if lines else []
         if not lines:
+            if now.hour < 20:  # try again in a sim hour, until the evening
+                self.news_day, self.news_retry_at = "", now + timedelta(hours=1)
             return
-        self.news = lines
+        self.news, self.news_for = lines, day
         async with Session() as s:
             for ln in lines:
                 s.add(NewsItem(sim_day=day, text=ln))
@@ -843,7 +880,8 @@ class Director:
 
     # ---------------------------------------------------------------- people movement
 
-    async def arrive(self, p: PersonState) -> None:
+    def check_in(self, p: PersonState) -> None:
+        """Everything about a guest's visit that is settled at the door: stay, tab, drinks, mood. No routing."""
         now = self.clock.now()
         p.present, p.location, p.visited_day, p.wants_leave, p.pending_arrival = True, "ordering", now.strftime("%Y-%m-%d"), False, None
         stay = p.persona.get("stay", 90) * self.rng.uniform(0.6, 1.5) * human.stay_scale(p.persona)
@@ -863,6 +901,11 @@ class Director:
         p.need, p.need_at = human.pick_need(self.rng, stay, now, now.weekday() >= 3)
         p.first_visit = bool(p.persona.get("walkin")) and self.visits[p.id]["n"] == 1
         bus.publish({"type": "person", "person": self.person_view(p)})  # keeps visit counts current in open browsers
+
+    async def arrive(self, p: PersonState) -> None:
+        self.check_in(p)
+        now = self.clock.now()
+        close = open_close(now)[1]
         await self.post("door", f"🍺 {p.display} walks in.", kind="system")
         # Friends tend to follow each other in.
         if now < close - timedelta(minutes=LAST_CALL_MIN + 20):
@@ -880,6 +923,14 @@ class Director:
             p.next_drink_at = now + timedelta(minutes=10)
             await self.settle(p)
 
+    def party_table(self, p: PersonState, area: str) -> int | None:
+        """The table held for this guest's party in this area, if it still has a seat for them."""
+        pt = self.parties.get(p.party) if p.party is not None else None
+        t = pt.tables_of.get(p.id) if pt and pt.area == area else None
+        if t is None or len([q for q in self.table_occupants(area, t) if q.id != p.id]) >= TABLE_SEATS:
+            return None
+        return t
+
     async def depart(self, p: PersonState) -> None:
         if not p.present:
             return
@@ -892,8 +943,16 @@ class Director:
         p.present, p.location, p.thread_id, p.wants_leave, p.free_since, p.stool, p.drink = False, None, None, False, None, None, ""
         p.table, p.spot = None, None
         p.return_to, p.next_drink_at = None, None
+        self.leave_party(p)
         await self.post("door", f"👋 {p.display} heads out.", kind="system")
         self.publish_presence()
+
+    def leave_party(self, p: PersonState) -> None:
+        """Let go of a party's tables once its last member has left."""
+        pid, p.party = p.party, None
+        pt = self.parties.get(pid) if pid is not None else None
+        if pt and not any(self.people[m].present and self.people[m].party == pid for m in pt.members):
+            del self.parties[pid]
 
     async def move(self, p: PersonState, loc: str) -> bool:
         """Go somewhere else. The bar means a stool, so a full bar says no."""
@@ -905,7 +964,9 @@ class Director:
                 p.spot = "bar"
             return ok
         p.location, p.free_since, p.stool, p.spot = loc, self.clock.now(), None, loc
-        p.table = self.pick_table(loc, [p.id])
+        p.table = self.party_table(p, loc) if p.party is not None else None
+        if p.table is None:
+            p.table = self.pick_table(loc, [p.id])
         await self.post(loc, f"{p.short} settles in at the {LOC_DESC[loc]}.", kind="system")
         self.publish_presence()
         return True
@@ -916,7 +977,7 @@ class Director:
         loc = None
         friends = [q for q in self.patrons() if q.present and q.id != p.id and q.location in LOCATIONS
                    and free[q.location] > 0 and self.social.rel(p.id, q.id).familiarity >= 35]
-        if p.drinks <= 1 and friends and self.rng.random() < 0.5:
+        if p.drinks <= 1 and friends and p.party is None and self.rng.random() < 0.5:
             weights = [self.social.rel(p.id, q.id).familiarity for q in friends]
             loc = self.rng.choices(friends, weights)[0].location
         loc = loc or p.spot or self.choose_area(p)
@@ -925,6 +986,8 @@ class Director:
             loc = self.choose_area(p, no_bar=True)  # every stool is taken
         if loc != "bar" and loc != p.location:
             await self.move(p, loc)
+        if p.party is not None:
+            await self.convene(p.party)
 
     async def bartender_on(self, b: PersonState) -> None:
         b.present, b.location = True, "bar"
@@ -944,7 +1007,9 @@ class Director:
         day = now.strftime("%Y-%m-%d")
         open_t, close_t = open_close(now)
 
-        if self.news_day != day and now.hour >= 10:
+        if self.news and self.news_for != day:
+            self.news, self.news_retry_at = [], None  # yesterday's headlines are not today's
+        if self.news_day != day and now.hour >= 10 and (self.news_retry_at is None or now >= self.news_retry_at):
             self.news_day = day
             self.spawn(self.news_desk(day))
 
@@ -967,6 +1032,7 @@ class Director:
             if now < close_t - timedelta(minutes=LAST_CALL_MIN):
                 await self.arrivals(now, dt_min, day)
                 self.walk_ins(now, dt_min)
+                self.group_arrivals(now, dt_min)
         elif self.closed_day != day and self.opened_day == day:
             self.closed_day = day
             await self.post("door", "🔒 Modist Social is closed. Thanks for coming out.", kind="system")
@@ -1058,22 +1124,36 @@ class Director:
             self.generating = True
             self.spawn(self.welcome_newcomer())
 
+    async def make_newcomer(self) -> PersonState | None:
+        """Make a person who has never been here and save them. None when the name pool is spent."""
+        now = self.clock.now()
+        picked = newcomers.pick_name(
+            self.rng, {q.short for q in self.people.values()} | {short_name(n) for n in self.naming},
+            {q.display for q in self.people.values()} | {display_name(n) for n in self.naming})
+        if picked is None:
+            return None
+        name, pronouns = picked
+        self.naming.add(name)  # parties make several people at once; keep their names apart
+        try:
+            return await self._make_newcomer(name, pronouns, now)
+        finally:
+            self.naming.discard(name)
+
+    async def _make_newcomer(self, name: str, pronouns: str, now: datetime) -> PersonState:
+        skel = newcomers.skeleton(self.rng, now)
+        raw = None
+        if (make := getattr(self.llm, "persona", None)) and not self.check_budget():
+            jobs = [q.persona.get("job", "") for q in self.patrons()]
+            jobs = self.rng.sample(jobs, min(40, len(jobs)))  # a taste of what's common, so the model varies
+            raw = await make(newcomers.brief(name, pronouns, skel, now, settings.brewery_city, jobs))
+        return await self.add_person(name, pronouns, newcomers.validate(raw, skel, self.rng))
+
     async def welcome_newcomer(self) -> None:
         """Make a person who has never been here, save them, and have them walk in."""
         try:
-            now = self.clock.now()
-            picked = newcomers.pick_name(
-                self.rng, {q.short for q in self.people.values()}, {q.display for q in self.people.values()})
-            if picked is None:
+            p = await self.make_newcomer()
+            if p is None:
                 return  # every name in the pool is taken
-            name, pronouns = picked
-            skel = newcomers.skeleton(self.rng, now)
-            raw = None
-            if (make := getattr(self.llm, "persona", None)) and not self.check_budget():
-                jobs = [q.persona.get("job", "") for q in self.patrons()]
-                jobs = self.rng.sample(jobs, min(40, len(jobs)))  # a taste of what's common, so the model varies
-                raw = await make(newcomers.brief(name, pronouns, skel, now, settings.brewery_city, jobs))
-            p = await self.add_person(name, pronouns, newcomers.validate(raw, skel, self.rng))
             if not is_open(self.clock.now()):
                 return  # the bar closed while they were being made; they'll come on their own schedule
             hosts = [q for q in self.patrons() if q.present and q.id != p.id]
@@ -1083,6 +1163,152 @@ class Director:
             await self.arrive(p)
         finally:
             self.generating = False
+
+    # ---------------------------------------------------------------- parties
+
+    def group_arrivals(self, now: datetime, dt_min: float) -> None:
+        """Now and then a party walks in together: regulars, regulars with new faces, or all new faces."""
+        if not settings.groups_enabled or self.generating or self.check_budget():
+            return
+        rate = arrival_rate(settings.groups_per_week / NEWCOMER_SCALE, groups.GROUP_DAYS, groups.GROUP_WINDOW, now) * self.crowd
+        if self.rng.random() < 1 - math.exp(-rate * dt_min / 60):
+            self.generating = True
+            self.spawn(self.welcome_group())
+
+    async def welcome_group(self) -> None:
+        try:
+            members = await self.build_group(groups.pick_size(self.rng), groups.pick_kind(self.rng))
+            if len(members) >= 2 and is_open(self.clock.now()):
+                await self.arrive_group(members)
+        finally:
+            self.generating = False
+
+    def friends_of(self, anchor: PersonState, min_fam: int = 35) -> list[PersonState]:
+        """People who are not here, have not been today and know the anchor, closest friends first."""
+        day = self.clock.now().strftime("%Y-%m-%d")
+        friends = [q for q in self.patrons() if q.id != anchor.id and not q.present and q.visited_day != day
+                   and q.pending_arrival is None and self.social.rel(anchor.id, q.id).familiarity >= min_fam]
+        self.rng.shuffle(friends)
+        return sorted(friends, key=lambda q: -self.social.rel(anchor.id, q.id).familiarity)
+
+    async def build_group(self, size: int, kind: str) -> list[PersonState]:
+        """Pick or make the people for a party. Falls short of `size` when the roster or the patron cap runs out."""
+        day = self.clock.now().strftime("%Y-%m-%d")
+        free = [q for q in self.patrons() if not q.present and q.visited_day != day and q.pending_arrival is None]
+        members: list[PersonState] = []
+        if kind != "new" and free:
+            anchor = self.rng.choice(free)
+            members = [anchor]
+            want = size if kind == "regulars" else self.rng.randint(1, max(1, size - 1))
+            members += self.friends_of(anchor)[:max(0, want - 1)]
+            if kind == "regulars" and len(members) < 2:
+                kind = "mixed"
+        room = max(0, settings.max_patrons - len(self.patrons()))
+        need = min(size - len(members), room)
+        if kind == "mixed" and len(members) == 1 and need < 1:
+            return []
+        made = await asyncio.gather(*(self.make_newcomer() for _ in range(max(0, need))), return_exceptions=True)
+        for m in made:
+            if isinstance(m, PersonState):
+                members.append(m)
+            elif isinstance(m, Exception):
+                log.warning("could not make a party member: %s", m)
+        return members
+
+    async def bond_group(self, members: list[PersonState]) -> None:
+        """People who come in together already know each other a little, and will remember it."""
+        now = self.clock.now()
+        names = _names([m.short for m in members])
+        for i, a in enumerate(members):
+            for b in members[i + 1:]:
+                if self.social.rel(a.id, b.id).familiarity < 30:
+                    for k in range(3):
+                        await self.social.apply_delta(a.id, b.id, 8, 3, f"came in together with {names}" if k == 0 else "")
+                await self.social.mark_met(a.id, b.id, now)
+        for m in members:
+            others = [o for o in members if o.id != m.id]
+            await self.social.add_memory(m.id, now, f"Came to the taproom with {_names([o.short for o in others])}.",
+                                         [o.id for o in others], 5)
+        self.publish_relationships([m.id for m in members])
+
+    def claim_party_tables(self, size: int) -> tuple[str, list[int]]:
+        """Where a party of this size sits: an area and the tables it holds (none when everything is taken)."""
+        now = self.clock.now()
+        free, cap = self.area_room()
+        w = seating.area_weights(min(size, 3), 1.0, False, False, now, free, cap)
+        w["bar"] = 0.0  # a party takes a table
+        area = seating.pick_area(self.rng, w)
+        order = [area] + [a for a in TABLES if a != area]
+        for a in order:
+            held = self.held_tables(a)
+            empty = [i for i in range(TABLES[a]) if i not in held and not self.table_occupants(a, i)]
+            if groups.tables_needed(size) == 1:
+                if empty:
+                    return a, [self.rng.choice(empty)]
+            else:
+                pairs = [pr for pr in TABLE_PAIRS[a] if all(i in empty for i in pr)]
+                if pairs:
+                    return a, list(self.rng.choice(pairs))
+        return area, []
+
+    async def arrive_group(self, members: list[PersonState]) -> None:
+        """A party walks in together: one door line, one set of tables, one first round, one conversation."""
+        now = self.clock.now()
+        for m in members:
+            self.check_in(m)
+        close = open_close(now)[1] + timedelta(minutes=5)
+        stays = sorted(m.leave_at for m in members if m.leave_at)
+        for m in members:  # they leave about together
+            m.leave_at = min(stays[len(stays) // 2] + timedelta(minutes=self.rng.uniform(-10, 10)), close)
+            if m.reason in ("solo", "game"):
+                m.reason = "catch_up"
+        await self.bond_group(members)
+        self._party_seq += 1
+        area, tables = self.claim_party_tables(len(members))
+        leader = max(members, key=lambda m: m.talk)
+        pt = PartyState(id=self._party_seq, members=[m.id for m in members], leader=leader.id, area=area, tables=tables)
+        if tables:
+            for chunk, table in zip(groups.split(pt.members), tables if len(tables) > 1 else tables * 2):
+                for pid in chunk:
+                    pt.tables_of[pid] = table
+        self.parties[pt.id] = pt
+        for m in members:
+            m.party, m.spot = pt.id, area
+        await self.post("door", f"🍺 A group of {len(members)} walks in: {_names([m.display for m in members])}.", kind="system")
+        b = self.pick_bartender(leader)
+        for m in members:
+            if m is leader and b:
+                continue  # the leader goes to the bar first
+            m.next_drink_at = None if b else now + timedelta(minutes=10)  # with a bartender, the leader's order pays
+            m.location, m.free_since, m.stool = area, now, None
+            m.table = pt.tables_of.get(m.id)
+        if tables or len(members) > 1:
+            await self.post(area, f"A group of {len(members)} settles in at the {LOC_DESC[area]}.", kind="system")
+        if b:
+            t = await self.open_thread("ordering", "order", [leader.id, b.id], max_turns=3)
+            t.party = [m.id for m in members if m is not leader]
+        else:
+            await self.settle(leader)
+        self.publish_presence()
+        await self.convene(pt.id)
+
+    async def convene(self, party: int) -> None:
+        """Start the table's conversation: one chat of up to MAX_GROUP for each part of the party that is sitting free."""
+        pt = self.parties.get(party)
+        if not pt:
+            return
+        for chunk in groups.split(pt.members):
+            sitting = [self.people[m] for m in chunk if self.people[m].present and self.people[m].location == pt.area
+                       and not self.people[m].wants_leave]
+            free = [q for q in sitting if q.thread_id is None]
+            live = next((self.threads[q.thread_id] for q in sitting if q.thread_id in self.threads
+                         and self.threads[q.thread_id].kind == "chat" and not self.threads[q.thread_id].closing), None)
+            if live:
+                for q in free:
+                    if len(live.members) < self.max_group(live):
+                        await self.join_thread(live, q)
+            elif len(free) >= 2:
+                await self.open_thread(pt.area, "chat", [q.id for q in free], self.rng.randint(10, 24))
 
     async def befriend(self, host: PersonState, guest: PersonState) -> None:
         """A friend who brought someone along: they already know each other a little."""

@@ -51,6 +51,12 @@ _NEWS = [
     "Neighborhood farmers market moves indoors for the season",
     "Parking meter rate increase proposed downtown",
     "Minneapolis hockey club announces a new head coach",
+    "A new taco spot opens on Nicollet this weekend",
+    "Light rail service runs on a reduced schedule after midnight this week",
+    "Lake Harriet bandshell announces its fall concert lineup",
+    "Neighborhood association plans a cleanup along the river trail",
+    "Local roaster opens a second cafe near the university",
+    "First frost expected overnight, gardeners urged to cover tomatoes",
 ]
 
 
@@ -107,8 +113,9 @@ class MockLLM:
                 rels.append({"a": a, "b": b, "familiarity_delta": 3, "affinity_delta": 1, "note": ""})
         return {"memories": mems, "relationships": rels}
 
-    async def news(self, city: str, date_text: str) -> list[str]:
-        return random.sample(_NEWS, 4)
+    async def news(self, city: str, date_text: str, recent: list[str]) -> list[str]:
+        fresh = [x for x in _NEWS if x not in recent]
+        return random.sample(fresh if len(fresh) >= 4 else _NEWS, 4)
 
     async def persona(self, brief: str) -> dict | None:
         return None  # newcomers are built from the template pools instead

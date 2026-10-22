@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     newcomers_enabled: bool = True
     newcomers_per_week: float = 8.0
     max_patrons: int = 150
+    # Parties (2-8 people) who walk in together: regulars, regulars with new people, or all new faces.
+    groups_enabled: bool = True
+    groups_per_week: float = 30.0
 
     # Sim minutes that pass per real minute.
     sim_speed: float = 15.0

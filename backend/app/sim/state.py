@@ -22,8 +22,14 @@ LOC_DESC = {
 MAX_GROUP = 4
 MAX_GROUP_BAR = 5  # a bar chat can hold guests plus one or both bartenders
 BAR_STOOLS = 20
-TABLES = {"inside-tables": 8, "patio": 4}  # tables per area; each seats a full group
+TABLES = {"inside-tables": 14, "patio": 6}  # tables per area; each seats a full group
 TABLE_SEATS = MAX_GROUP
+# Tables that sit next to each other in the floor plan (frontend/src/taproom/layout.ts: keep the two in step);
+# a party of 5-8 pushes a pair together.
+TABLE_PAIRS = {
+    "inside-tables": [(i, i + 1) for row in (0, 7) for i in range(row, row + 6)],
+    "patio": [(i, i + 1) for row in (0, 3) for i in range(row, row + 2)],
+}
 
 
 def short_name(name: str) -> str:
@@ -76,6 +82,7 @@ class PersonState:
     gap_days: int = 0  # days since their previous visit when they arrived
     thought: str = ""  # their latest private thought
     first_visit: bool = False  # a walk-in on their first ever visit
+    party: int | None = None  # the party they walked in with, while it is still here
 
     @property
     def seated(self) -> bool:
@@ -116,8 +123,19 @@ class ThreadState:
     tension: float = 0.0  # how heated opposing sides in an on-event chat have got
     stepped_in: bool = False  # a bartender has already calmed this chat down
     table: int | None = None  # the table this chat sits at (inside-tables and patio only)
+    party: list[str] = field(default_factory=list)  # the leader's party: their first drinks ride on this order
     excuse: dict[str, str] = field(default_factory=dict)  # who should bow out this turn, and why
     span: dict[str, list] = field(default_factory=dict)  # pid -> [first line index, last line index or None]
+
+
+@dataclass
+class PartyState:
+    id: int
+    members: list[str]
+    leader: str
+    area: str
+    tables: list[int]  # tables held for the party, whether or not everyone is sitting at them
+    tables_of: dict[str, int] = field(default_factory=dict)  # member -> their table
 
 
 @dataclass

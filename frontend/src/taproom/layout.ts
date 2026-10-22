@@ -18,20 +18,22 @@ export const STOOLS: Vec2[] = Array.from({ length: 20 }, (_, i) => [2.5 + i * 0.
 const BARTENDER_SPOTS: Vec2[] = [[5.5, 1.35], [8.5, 1.35], [11.5, 1.35]];
 
 export const TABLES: Record<string, Vec2[]> = {
-  "inside-tables": [3.7, 7.1, 10.1, 13.2].flatMap((x) => [4.8, 6.9].map((z): Vec2 => [x, z])).sort((a, b) => a[1] - b[1] || a[0] - b[0]),
-  patio: [
-    [7.2, 11.6], [12.8, 11.6],
-    [7.2, 13.1], [12.8, 13.1],
-  ],
+  "inside-tables": [1.6, 4.9, 8.0, 11.0, 13.9, 16.4, 19.0].flatMap((x) => [4.8, 6.9].map((z): Vec2 => [x, z])).sort((a, b) => a[1] - b[1] || a[0] - b[0]),
+  patio: [7.2, 10.0, 12.8].map((x): Vec2 => [x, 11.6]).concat([7.2, 10.0, 12.8].map((x): Vec2 => [x, 13.1])),
 };
 export const TABLE_SIZE: Vec2 = [1.9, 1.1];
+/** Tables that sit side by side; a party of 5-8 pushes a pair together (same pairs as TABLE_PAIRS in the backend). */
+export const TABLE_PAIRS: Record<string, [number, number][]> = {
+  "inside-tables": [0, 7].flatMap((row) => [0, 1, 2, 3, 4, 5].map((i): [number, number] => [row + i, row + i + 1])),
+  patio: [0, 3].flatMap((row) => [0, 1].map((i): [number, number] => [row + i, row + i + 1])),
+};
 const SEATS: Vec2[] = [[-0.5, -0.9], [0.5, -0.9], [-0.5, 0.9], [0.5, 0.9]];
 
-const QUEUE: Vec2[] = Array.from({ length: 9 }, (_, i) => [15.4 + (i % 3) * 0.65, 3.7 + Math.floor(i / 3) * 0.7]);
+const QUEUE: Vec2[] = Array.from({ length: 9 }, (_, i) => [17.4 + (i % 3) * 0.65, 1.4 + Math.floor(i / 3) * 0.7]);
 // Guests with no seat stand along the edge of their area.
 const STANDING: Record<string, (i: number) => Vec2> = {
   "inside-tables": (i) => [2.5 + (i % 12) * 1.3, 8.9 + Math.floor(i / 12) * 0.7],
-  patio: (i) => [9.9 + ((i % 3) - 1) * 0.7, 12.3 + Math.floor(i / 3) * 0.6],
+  patio: (i) => [i % 2 ? 14.5 : 5.8, 11.2 + Math.floor(i / 2) * 0.6],
   bar: (i) => [2.6 + (i % 10) * 1.2, 4.3],
 };
 

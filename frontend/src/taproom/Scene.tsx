@@ -2,7 +2,8 @@ import { OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
 import { useEffect } from "react";
 import { Bubbles } from "./Bubbles";
-import { BAR, CENTER, COUNTER, DOORS, PATIO, ROOM, STOOLS, TABLES, TABLE_SIZE } from "./layout";
+import { useStore } from "../store";
+import { BAR, CENTER, COUNTER, DOORS, PATIO, ROOM, STOOLS, TABLES, TABLE_PAIRS, TABLE_SIZE } from "./layout";
 import { People } from "./People";
 import { useTheme } from "./theme";
 
@@ -32,6 +33,40 @@ function Table({ x, z, patio }: { x: number; z: number; patio?: boolean }) {
         <meshStandardMaterial color={WOOD_DARK} />
       </mesh>
     </group>
+  );
+}
+
+// A party of 5-8 sits at two tables pushed together: bridge the gap between them with a joining tabletop.
+function JoinedTables() {
+  const presence = useStore((s) => s.presence);
+  const [w, d] = TABLE_SIZE;
+  const bridges: { key: string; x: number; z: number; bw: number; bd: number; patio: boolean }[] = [];
+  const parties: Record<string, Set<number>> = {};
+  for (const p of Object.values(presence)) {
+    if (p.party == null || p.table == null || !p.location || !TABLES[p.location]) continue;
+    (parties[`${p.location}:${p.party}`] ??= new Set()).add(p.table);
+  }
+  for (const [key, held] of Object.entries(parties)) {
+    const loc = key.split(":")[0];
+    for (const [a, b] of TABLE_PAIRS[loc] ?? []) {
+      if (!held.has(a) || !held.has(b)) continue;
+      const [ax, az] = TABLES[loc][a];
+      const [bx, bz] = TABLES[loc][b];
+      const horizontal = Math.abs(ax - bx) > Math.abs(az - bz);
+      bridges.push(horizontal
+        ? { key: `${key}-${a}`, x: (ax + bx) / 2, z: (az + bz) / 2, bw: Math.abs(ax - bx) - w, bd: d, patio: loc === "patio" }
+        : { key: `${key}-${a}`, x: (ax + bx) / 2, z: (az + bz) / 2, bw: w, bd: Math.abs(az - bz) - d, patio: loc === "patio" });
+    }
+  }
+  return (
+    <>
+      {bridges.map((b) => (
+        <mesh key={b.key} position={[b.x, (b.patio ? 0.8 : 1.05), b.z]}>
+          <boxGeometry args={[b.bw + 0.02, 0.1, b.bd + 0.02]} />
+          <meshStandardMaterial color={WOOD} />
+        </mesh>
+      ))}
+    </>
   );
 }
 
@@ -102,6 +137,7 @@ export function Scene() {
       <Fit />
       <OrbitControls makeDefault enableRotate={false} target={[CENTER[0], 0, CENTER[1]]} zoomToCursor />
       <Room />
+      <JoinedTables />
       <People />
       <Bubbles />
     </Canvas>
