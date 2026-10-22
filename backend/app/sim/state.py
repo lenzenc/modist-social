@@ -83,6 +83,7 @@ class PersonState:
     thought: str = ""  # their latest private thought
     first_visit: bool = False  # a walk-in on their first ever visit
     party: int | None = None  # the party they walked in with, while it is still here
+    waiting: bool = False  # in line for a bartender
 
     @property
     def seated(self) -> bool:
@@ -126,6 +127,15 @@ class ThreadState:
     party: list[str] = field(default_factory=list)  # the leader's party: their first drinks ride on this order
     excuse: dict[str, str] = field(default_factory=dict)  # who should bow out this turn, and why
     span: dict[str, list] = field(default_factory=dict)  # pid -> [first line index, last line index or None]
+
+
+@dataclass
+class Waiting:
+    """A guest in line for a bartender."""
+    pid: str
+    since: datetime
+    again: bool  # a repeat round rather than a first drink
+    party: list[str] = field(default_factory=list)  # a party leader's order pays for these first rounds
 
 
 @dataclass
