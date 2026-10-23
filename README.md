@@ -24,7 +24,7 @@ Open http://localhost:5173. Whenever the app starts while the taproom is closed,
 
 No key yet? `make mock` runs the whole flow for free with canned dialogue.
 
-Postgres data lives in a Docker volume, so relationships and memories survive restarts. `make reset` wipes everything for a fresh brewery.
+Postgres data lives in a Docker volume, so relationships and memories survive restarts. The database user, password, name and port are the `POSTGRES_*` values in `.env`. `make reset` wipes everything for a fresh brewery.
 
 ## What you see
 

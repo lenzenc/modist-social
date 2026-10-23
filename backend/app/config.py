@@ -1,10 +1,27 @@
+from urllib.parse import quote
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=("../.env", ".env"), extra="ignore")
 
-    database_url: str = "postgresql+asyncpg://modist:modist@localhost:5433/modist"
+    # The same POSTGRES_* values in .env also configure the db container (docker-compose.yml).
+    postgres_user: str = "modist"
+    postgres_password: str = "modist"
+    postgres_db: str = "modist"
+    postgres_host: str = "localhost"
+    postgres_port: int = 5433
+    # Optional full URL; overrides the POSTGRES_* parts when set.
+    database_url: str = ""
+
+    @property
+    def db_url(self) -> str:
+        if self.database_url:
+            return self.database_url
+        user = quote(self.postgres_user, safe="")
+        password = quote(self.postgres_password, safe="")
+        return f"postgresql+asyncpg://{user}:{password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
 
     anthropic_api_key: str = ""
     model: str = "claude-haiku-5-5"

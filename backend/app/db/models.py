@@ -6,7 +6,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.config import settings
 
-engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+engine = create_async_engine(settings.db_url, pool_pre_ping=True)
 Session = async_sessionmaker(engine, expire_on_commit=False)
 
 
