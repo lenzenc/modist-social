@@ -381,12 +381,12 @@ function Constellation({ p }: { p: Profile }) {
   const n = rels.length;
   const nodes = rels.map((r, i) => {
     const a = -Math.PI / 2 + (i / n) * Math.PI * 2;
-    const rad = 62 + (1 - r.familiarity / 100) * 118;
+    const rad = 58 + (1 - r.familiarity / 100) * 112;
     return { r, x: c + Math.cos(a) * rad, y: c + Math.sin(a) * rad };
   });
   return (
     <svg viewBox={`0 0 ${S} ${S}`} className="w-full">
-      {[62, 121, 180].map((rad) => (
+      {[58, 114, 170].map((rad) => (
         <circle key={rad} cx={c} cy={c} r={rad} fill="none" stroke="var(--border)" strokeWidth={1} strokeDasharray="2 4" />
       ))}
       {nodes.map(({ r, x, y }) => (

@@ -26,6 +26,10 @@ No key yet? `make mock` runs the whole flow for free with canned dialogue.
 
 Postgres data lives in a Docker volume, so relationships and memories survive restarts. `make reset` wipes everything for a fresh brewery.
 
+## Alternate layouts
+
+The main page has four other looks besides the Slack-style default: Taproom Tonight, Floor Map, Storyboard and Control Room. Add `?ui=tonight`, `?ui=floor`, `?ui=storyboard` or `?ui=control` to the URL, or use the "UI" switch in the corner. See [docs/ui-explorations.md](docs/ui-explorations.md).
+
 ## What you see
 
 - **#door**: arrivals, departures, shift changes, last call, and the daily "around town" news.
