@@ -1,7 +1,7 @@
 import logging
 
 from app.agents.prompts import persona_prompt
-from app.sim import human
+from app.sim import bonds, human
 from app.sim.social import relation_label
 from app.sim.state import LOC_DESC, ThreadState
 
@@ -115,8 +115,68 @@ async def summarize_thread(d, t: ThreadState, firsts: set | None = None) -> tupl
         await d.social.apply_delta(a, b, fam, aff, r.get("note", ""))
         for pid in (a, b):
             human.nudge_mood(d.people[pid], aff * 0.02)
+        await bond_step(d, a, b, str(r.get("moment", "none")), d.resolve(r.get("by", "")) or "", aff, str(r.get("note", "")))
     d.publish_relationships(speakers)
     return mem_done, rel_done
+
+
+async def bond_step(d, a: str, b: str, moment: str, by: str, aff_delta: int, note: str = "") -> None:
+    """After a conversation: does it change what these two are to each other?"""
+    rel = d.social.rel(a, b)
+    ch = bonds.step(rel, d.people[a], d.people[b], moment, by, aff_delta, d.clock.now(), d.rng)
+    if ch:
+        await apply_bond(d, a, b, ch, note)
+
+
+async def apply_bond(d, a: str, b: str, ch: bonds.Change, note: str = "") -> bool:
+    """Make a bond change real: save it, and give both people a memory of it. False if the room has had enough romance today."""
+    now = d.clock.now()
+    if ch.new in ("crush", "couple"):
+        if not d.romance_ok(now):
+            return False
+        d.romance_used(now)
+    old = await d.social.set_bond(a, b, ch, now)
+    for pid, text, importance, followup in _bond_memories(d, a, b, ch, old, note, now):
+        about = [b if pid == a else a]
+        await d.social.add_memory(pid, now, text, about, importance)
+        if followup:
+            await d.social.add_memory(pid, now, followup, about, 6, "followup")
+    d.publish_relationships([a, b])
+    return True
+
+
+def _bond_memories(d, a: str, b: str, ch: bonds.Change, old: str, note: str, now) -> list[tuple[str, str, int, str]]:
+    """(person, memory, importance, followup) for each side of a bond change."""
+    day = now.strftime("%A")
+    out = []
+    for me, other in ((a, b), (b, a)):
+        o = d.people[other].short
+        extra = f" ({note.strip()})" if note.strip() else ""
+        text, imp, follow = "", 6, ""
+        if ch.new == "falling_out":
+            text, imp, follow = f"You and {o} had a falling-out on {day}{extra}.", 8, f"Maybe clear the air with {o}"
+        elif old == "falling_out":
+            text, imp = (f"You and {o} made up on {day}." if ch.new != "ex" and ch.new != "acquaintance" and ch.new != "rivals"
+                         else f"Things with {o} never got patched up; you've drifted apart."), 7
+        elif ch.new == "crush":
+            if me != ch.by:
+                continue  # only the one with the feelings knows
+            text, imp = f"You realized you have a crush on {o}.", 8
+        elif ch.new == "couple":
+            text, imp = f"You and {o} became a couple on {day}.", 9
+        elif ch.new == "rivals":
+            text, imp = f"You and {o} clearly don't get along{extra}.", 6
+        elif ch.new == "ex":
+            text, imp = f"You and {o} are over.", 8
+        elif ch.new == "mentor":
+            text, imp = (f"You took {o} under your wing." if me == ch.by else f"{o} gave you advice you'll remember."), 6
+        elif ch.new in ("friends", "close_friends"):
+            text, imp = f"You and {o} have become {'close friends' if ch.new == 'close_friends' else 'friends'}.", 6
+        elif ch.new == "acquaintance":
+            text, imp = f"You and {o} left things on better terms{extra}.", 5
+        if text:
+            out.append((me, text, imp, follow))
+    return out
 
 
 async def reflect_day(d, day: str) -> None:

@@ -6,11 +6,11 @@ import os
 from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.bus import bus
 from app.config import settings
-from app.db.models import Message, Session, Thread, init_db
+from app.db.models import BondChange, Message, Session, Thread, init_db
 from app.llm import make_llm
 from app.llm.usage import usage
 from app.realism_api import router as realism_router
@@ -156,6 +156,7 @@ async def person(pid: str):
         rels.append({
             "id": o.id, "name": o.display, "kind": r.kind, "familiarity": r.familiarity,
             "affinity": r.affinity, "notes": r.notes, "color": o.color,
+            "bond": r.bond or "stranger", "bond_since": r.bond_since.isoformat() if r.bond_since else None,
         })
     rels.sort(key=lambda r: -r["familiarity"])
     mems = [{
@@ -166,7 +167,14 @@ async def person(pid: str):
         "reason": p.reason, "mood": round(p.mood, 2), "buzz": round(p.buzz, 2), "battery": round(p.battery, 2),
         "need": p.need, "thought": p.thought, "drinks": p.drinks,
     } if p.present and not p.is_bartender else None
-    return {**_person(p), "persona": p.persona, "relationships": rels[:30], "memories": mems, "state": state,
+    async with Session() as s:
+        changes = (await s.scalars(select(BondChange).where(or_(BondChange.a_id == pid, BondChange.b_id == pid))
+                                   .order_by(BondChange.id.desc()).limit(5))).all()
+    bond_changes = [{
+        "with": director.people[c.b_id if c.a_id == pid else c.a_id].short, "from": c.from_bond, "to": c.to_bond,
+        "why": c.why, "sim_ts": c.sim_ts.isoformat(),
+    } for c in changes]
+    return {**_person(p), "persona": p.persona, "relationships": rels[:30], "bond_changes": bond_changes, "memories": mems, "state": state,
             "lately": director.lives.get(pid, ""), "visits": director.visits.get(pid, {}).get("n", 0),
             "life": [{"text": e.text, "cat": e.cat, "started_at": e.started_at.isoformat(), "ends_at": e.ends_at.isoformat(),
                       "active": life.freshness(e, director.clock.now()) > 0}

@@ -68,6 +68,9 @@ const REASON: Record<string, string> = {
   work: "work",
 };
 const moodWord = (m: number) => (m >= 0.4 ? "good" : m >= 0.1 ? "fine" : m > -0.25 ? "so-so" : m > -0.5 ? "irritable" : "down");
+const BOND_ICON: Record<string, string> = {
+  friends: "🤝", close_friends: "💛", rivals: "⚔️", crush: "💘", couple: "❤️", falling_out: "💔", ex: "🥀", mentor: "🎓",
+};
 const bar = (n: number) => `${Math.round(n * 100)}%`;
 
 function ProfilePane() {
@@ -144,6 +147,17 @@ function ProfilePane() {
           </dl>
         </Section>
 
+        {p.bond_changes?.length > 0 && (
+          <Section title="Recent changes">
+            {p.bond_changes.map((c, i) => (
+              <div key={i} className="mb-1 text-sm">
+                <span className="font-semibold">{c.with}</span>: {c.from.replace("_", " ")} → {c.to.replace("_", " ")}
+                {c.why ? <span className="text-[var(--muted)]"> ({c.why})</span> : null}
+              </div>
+            ))}
+          </Section>
+        )}
+
         <Section title={`Relationships (${p.relationships.length})`}>
           {p.relationships.length === 0 && <div className="text-sm text-[var(--muted)]">Hasn't met anyone yet.</div>}
           {p.relationships.map((r) => (
@@ -156,7 +170,8 @@ function ProfilePane() {
                 <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: r.color }} />
                 <span className="font-semibold">{r.name}</span>
                 <span className="text-xs text-[var(--muted)]">
-                  {r.kind !== "stranger" ? r.kind : familiarityLabel(r.familiarity)}
+                  {BOND_ICON[r.bond] ? `${BOND_ICON[r.bond]} ` : ""}
+                  {BOND_ICON[r.bond] ? r.bond.replace("_", " ") : r.kind !== "stranger" ? r.kind : familiarityLabel(r.familiarity)}
                 </span>
               </div>
               <div className="mt-1 flex items-center gap-2">

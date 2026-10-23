@@ -166,6 +166,34 @@ export default function RealismPage() {
           </div>
 
           <div className="rounded-lg border border-[var(--border)] p-4">
+            <div className="mb-2 flex items-baseline justify-between text-sm">
+              <span className="font-semibold">Relationships</span>
+              <span style={{ color: BAND_COLOR[summary.bonds.band] }} className="font-bold">
+                {summary.bonds.rate === null ? "not enough visits yet" : `${summary.bonds.changes} changes`}
+              </span>
+            </div>
+            <div className="mb-2 text-xs text-[var(--muted)]">
+              Friendships forming, rivalries, crushes, falling-outs and making up. None all week means the room never changes; a
+              flood means a soap opera. Not part of the overall score.
+            </div>
+            {summary.bonds.list.length === 0 ? (
+              <div className="text-sm text-[var(--muted)]">No relationship changes in this period.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <tbody>
+                  {summary.bonds.list.map((c, i) => (
+                    <tr key={i} className="border-t border-[var(--border)] first:border-0">
+                      <td className="py-1 pr-3 font-semibold whitespace-nowrap">{c.a} &amp; {c.b}</td>
+                      <td className="py-1 pr-3">{c.from.replace("_", " ")} → {c.to.replace("_", " ")}{c.why ? ` (${c.why})` : ""}</td>
+                      <td className="py-1 text-right whitespace-nowrap text-[var(--muted)]">{c.day}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-[var(--border)] p-4">
             <div className="mb-3 text-sm font-semibold">{label} by day</div>
             <div className="flex h-36 items-end gap-1.5">
               {summary.series.map((b) => {

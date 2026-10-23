@@ -121,7 +121,11 @@ export interface Profile extends Person {
     affinity: number;
     notes: string;
     color: string;
+    bond: string;
+    bond_since: string | null;
   }[];
+  /** The last few times one of their relationships changed. */
+  bond_changes: { with: string; from: string; to: string; why: string; sim_ts: string }[];
   memories: { sim_ts: string; text: string; about: string[]; importance: number; kind: string }[];
   /** How they feel right now; null when they're not in the taproom. */
   state: { reason: string; mood: number; buzz: number; battery: number; need: string; thought: string; drinks: number } | null;

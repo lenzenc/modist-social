@@ -41,6 +41,13 @@ export interface Summary {
     mentioned: number;
     events: { person: string; text: string; started: string; seen: boolean; came_up: boolean }[];
   };
+  bonds: {
+    changes: number;
+    patron_days: number;
+    rate: number | null;
+    band: Band;
+    list: { a: string; b: string; from: string; to: string; why: string; day: string }[];
+  };
   series: ({ key: string; label: string; overall: number | null } & Record<MetricKey, number | null>)[];
 }
 

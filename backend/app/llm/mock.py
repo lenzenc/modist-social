@@ -1,9 +1,12 @@
 import random
+import zlib
 
 from app.llm.types import TurnRequest, Utterance
 from app.sim import menu
 from app.sim.realism import norm
 
+_MOMENTS = ["none", "fight", "flirt", "apology", "confided", "advice", "teasing"]
+_MOMENT_WEIGHTS = [66, 4, 7, 8, 6, 4, 5]  # mostly nothing, so a mock run shows every arc without a soap opera
 _OPENERS = [
     "Hey, is that the new {beer}? How is it?",
     "Long week. I just need one good pint and some quiet.",
@@ -117,9 +120,12 @@ class MockLLM:
         mems = [{"person": n, "text": "Chatted at the taproom; learned a little about the others.", "about": [],
                  "importance": 3, "followup": ""} for n in names]
         rels = []
+        r = random.Random(zlib.crc32(transcript.encode()))
         for i, a in enumerate(names):
             for b in names[i + 1 :]:
-                rels.append({"a": a, "b": b, "familiarity_delta": 3, "affinity_delta": 1, "note": ""})
+                moment = r.choices(_MOMENTS, _MOMENT_WEIGHTS)[0]
+                rels.append({"a": a, "b": b, "familiarity_delta": 3, "affinity_delta": -5 if moment == "fight" else 2,
+                             "note": "", "moment": moment, "by": r.choice([a, b]) if moment != "none" else ""})
         return {"memories": mems, "relationships": rels}
 
     async def news(self, city: str, date_text: str, recent: list[str]) -> list[str]:

@@ -8,14 +8,14 @@ from datetime import datetime, timedelta
 from sqlalchemy import delete, func, select, update
 
 from app.agents import agent as agent_mod
-from app.agents.memory import reflect_day, wrap_up
+from app.agents.memory import apply_bond, reflect_day, wrap_up
 from app.agents.prompts import persona_prompt, world_prompt
 from app.bus import bus
 from app.config import settings
 from app.db.models import LifeEvent, Message, NewsItem, Payment, Person, SaleItem, Session, SimState, Thread, get_state, set_state
 from app.llm.usage import usage
 from app.seed.loader import color_for
-from app.sim import environment, human, life, newcomers, realism
+from app.sim import bonds, environment, human, life, newcomers, realism
 from app.sim import god as godmode
 from app.sim import groups, menu, sales, seating
 from app.sim.clock import DEFAULT_START, SimClock, is_open, launch_time, open_close
@@ -76,6 +76,7 @@ class Director:
         self.lives: dict[str, str] = {}  # pid -> how their life stands lately, from the nightly reflection
         self.life: dict[str, list[life.LifeEventRec]] = {}  # pid -> off-screen events, active or recent
         self.life_day = ""  # the last sim day events were rolled for
+        self.romance: dict[str, int] = {}  # sim day -> crushes and couples formed that day
         self.generating = False  # a newcomer is being made right now
         self.parties: dict[int, PartyState] = {}  # parties holding tables right now
         self._party_seq = 0
@@ -159,11 +160,49 @@ class Director:
             mine = self.life.setdefault(p.id, [])
             rng = random.Random(f"{p.id}:{day}:arcs")
             fresh = life.due_followups(mine, p.persona, now, rng) + life.roll_day(p.id, p.persona, mine, d)
+            for rec in fresh:
+                await self.strain_bond(p, rec, rng)
             await self.save_life(p.id, mine, fresh)
             for rec in fresh:
                 await self.social.add_memory(p.id, now, life.memory_text(rec), [], life.IMPORTANCE.get(rec.cat, 5))
                 self.spawn(self.polish_event(p, rec))
+        await self.bond_day(now, day)
         await self.save_clock()
+
+    def romance_ok(self, now: datetime) -> bool:
+        return self.romance.get(now.strftime("%Y-%m-%d"), 0) < bonds.ROMANCE_PER_DAY
+
+    def romance_used(self, now: datetime) -> None:
+        day = now.strftime("%Y-%m-%d")
+        self.romance = {day: self.romance.get(day, 0) + 1}
+
+    async def strain_bond(self, p: PersonState, rec, rng: random.Random) -> None:
+        """A fight off-screen with someone close can be a fight with someone in this room."""
+        if rec.kind != "argument_with_partner_or_friend":
+            return
+        close = [(q, r) for q in self.patrons() if q.id != p.id and (r := self.social.rel(p.id, q.id)).bond in ("couple", "close_friends")]
+        if not close or rng.random() >= 0.6:
+            return
+        q, _ = rng.choice(close)
+        rec.text = rec.text.replace("someone close", q.short)
+        await self.apply_bond_change(p.id, q.id, bonds.Change("falling_out", "a fight", until=self.clock.now() + timedelta(days=rng.uniform(*bonds.FALLOUT_DAYS))))
+
+    async def apply_bond_change(self, a: str, b: str, ch: bonds.Change) -> None:
+        await apply_bond(self, a, b, ch)
+
+    async def bond_day(self, now: datetime, day: str) -> None:
+        """Once a sim day: bonds drift while nobody is watching, and couples sometimes make a night of it."""
+        for (a, b), rel in list(self.social.rels.items()):
+            if a not in self.people or b not in self.people or rel.bond in ("", "stranger", "acquaintance", "friends", "close_friends"):
+                continue
+            rng = random.Random(f"{a}:{b}:{day}:bond")
+            if ch := bonds.offscreen(rel, now, rng):
+                await apply_bond(self, a, b, ch)
+            elif bonds.date_night(rel, rng):
+                pa, pb = self.people[a], self.people[b]
+                if all(not x.present and x.visited_day != day and x.pending_arrival is None for x in (pa, pb)):
+                    when = datetime.combine(now.date(), datetime.min.time()) + timedelta(hours=17 + rng.randint(0, 2), minutes=rng.choice([0, 15, 30, 45]))
+                    pa.pending_arrival = pb.pending_arrival = max(when, now)
 
     async def save_life(self, pid: str, mine: list, fresh: list) -> None:
         """Write new events, and any change to resolved ones, to the database."""
@@ -982,9 +1021,11 @@ class Director:
         await self.post("door", f"🍺 {p.display} walks in.", kind="system")
         # Friends tend to follow each other in.
         if now < close - timedelta(minutes=LAST_CALL_MIN + 20):
+            good = any(e.cat == "good" for e in life.freshest(self.life.get(p.id, []), now))
             for q in self.patrons():
                 if (not q.present and q.visited_day != p.visited_day and q.pending_arrival is None
-                        and self.social.rel(p.id, q.id).familiarity >= 55 and self.rng.random() < (0.5 if p.reason == "catch_up" else 0.3)):
+                        and (self.social.rel(p.id, q.id).familiarity >= 55 or self.social.rel(p.id, q.id).bond == "couple")
+                        and self.rng.random() < bonds.follow_chance(self.social.rel(p.id, q.id), p.reason, good)):
                     q.pending_arrival = now + timedelta(minutes=self.rng.uniform(5, 25))
         if self.bartenders_on():
             p.spot = self.choose_area(p)
@@ -1466,7 +1507,7 @@ class Director:
                     await self.request_order(p)
                     continue
                 foe = next((q for q in self.patrons() if q.present and q.location == loc and q.id != p.id
-                            and human.avoids(self.social.rel(p.id, q.id).affinity)), None)
+                            and bonds.avoids(self.social.rel(p.id, q.id), now)), None)
                 if foe and self.rng.random() < _prob(0.05, k):
                     taken.add(p.id)
                     dest = self.rng.choice([x for x in LOCATIONS if x != loc])
@@ -1481,11 +1522,12 @@ class Director:
                     if any(self.cooling(p.id, m, now) for m in t.members):
                         continue
                     affs = [self.social.rel(p.id, m).affinity for m in t.members]
-                    if any(human.avoids(a) for a in affs):
+                    if any(bonds.avoids(self.social.rel(p.id, m), now) for m in t.members):
                         continue
                     fam = max((self.social.rel(p.id, m).familiarity for m in t.members), default=0)
                     pr = _prob(0.03 + 0.3 * fam / 100 + 0.04 * p.talk + (0.05 if self.stool_neighbors(p, t.members) else 0), k)
-                    pr = min(0.99, pr * human.drive(p, now) * human.affinity_weight(sum(affs) // max(1, len(affs))))
+                    pr = min(0.99, pr * human.drive(p, now) * human.affinity_weight(sum(affs) // max(1, len(affs)))
+                             * max((bonds.join_weight(self.social.rel(p.id, m)) for m in t.members), default=1.0))
                     if pr > best_p:
                         best, best_p = t, pr
                 if best and self.rng.random() < best_p:
@@ -1493,12 +1535,12 @@ class Director:
                     taken.add(p.id)
                     continue
                 partners = [q for q in free if q.id != p.id and q.id not in taken and not self.cooling(p.id, q.id, now)
-                            and not human.avoids(self.social.rel(p.id, q.id).affinity)]
+                            and not bonds.avoids(self.social.rel(p.id, q.id), now)]
                 if partners:
                     fams = [self.social.rel(p.id, q.id).familiarity for q in partners]
                     # Strangers on neighbouring stools strike up a conversation far more often than strangers across the room.
                     near = [1.0 if self.stool_neighbors(p, [x.id]) else 0.0 for x in partners]
-                    q = self.rng.choices(partners, [(0.05 + f / 100 + 0.3 * x.talk + 0.4 * n) * human.affinity_weight(self.social.rel(p.id, x.id).affinity)
+                    q = self.rng.choices(partners, [(0.05 + f / 100 + 0.3 * x.talk + 0.4 * n) * human.affinity_weight(self.social.rel(p.id, x.id).affinity) * bonds.join_weight(self.social.rel(p.id, x.id))
                                                     for f, x, n in zip(fams, partners, near)])[0]
                     fam = self.social.rel(p.id, q.id).familiarity
                     if self.rng.random() < min(0.99, _prob(0.04 + 0.35 * fam / 100 + 0.04 * p.talk + (0.06 if self.stool_neighbors(p, [q.id]) else 0), k) * human.drive(p, now)):

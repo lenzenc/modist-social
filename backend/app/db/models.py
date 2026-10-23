@@ -36,6 +36,26 @@ class Relationship(Base):
     affinity: Mapped[int] = mapped_column(Integer, default=0)  # -100..100
     notes: Mapped[str] = mapped_column(Text, default="")
     met_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    bond: Mapped[str] = mapped_column(String(16), default="")  # see sim/bonds.py
+    bond_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    bond_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    prior: Mapped[str] = mapped_column(String(16), default="")
+    crush_by: Mapped[str] = mapped_column(String(16), default="")
+    mentor_id: Mapped[str] = mapped_column(String(16), default="")
+
+
+class BondChange(Base):
+    """A relationship changing from one bond to another (see sim/bonds.py)."""
+
+    __tablename__ = "bond_change"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    a_id: Mapped[str] = mapped_column(ForeignKey("person.id"), index=True)
+    b_id: Mapped[str] = mapped_column(ForeignKey("person.id"), index=True)
+    from_bond: Mapped[str] = mapped_column(String(16))
+    to_bond: Mapped[str] = mapped_column(String(16))
+    why: Mapped[str] = mapped_column(Text, default="")
+    sim_ts: Mapped[datetime] = mapped_column(DateTime, index=True)
 
 
 class Memory(Base):
@@ -150,6 +170,12 @@ _COLUMNS = (
     "ALTER TABLE memory ADD COLUMN IF NOT EXISTS importance INTEGER NOT NULL DEFAULT 5",
     "ALTER TABLE memory ADD COLUMN IF NOT EXISTS kind VARCHAR(16) NOT NULL DEFAULT 'event'",
     "ALTER TABLE relationship ADD COLUMN IF NOT EXISTS met_at TIMESTAMP NULL",
+    "ALTER TABLE relationship ADD COLUMN IF NOT EXISTS bond VARCHAR(16) NOT NULL DEFAULT ''",
+    "ALTER TABLE relationship ADD COLUMN IF NOT EXISTS bond_since TIMESTAMP NULL",
+    "ALTER TABLE relationship ADD COLUMN IF NOT EXISTS bond_until TIMESTAMP NULL",
+    "ALTER TABLE relationship ADD COLUMN IF NOT EXISTS prior VARCHAR(16) NOT NULL DEFAULT ''",
+    "ALTER TABLE relationship ADD COLUMN IF NOT EXISTS crush_by VARCHAR(16) NOT NULL DEFAULT ''",
+    "ALTER TABLE relationship ADD COLUMN IF NOT EXISTS mentor_id VARCHAR(16) NOT NULL DEFAULT ''",
     "ALTER TABLE message ADD COLUMN IF NOT EXISTS thought TEXT NULL",
     "CREATE INDEX IF NOT EXISTS ix_message_sim_ts ON message (sim_ts)",
     "UPDATE thread SET channel = 'inside-tables' WHERE channel = 'high-tops'",

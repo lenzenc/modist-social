@@ -93,8 +93,10 @@ SUMMARY_SCHEMA = {
                     "familiarity_delta": {"type": "integer"},
                     "affinity_delta": {"type": "integer"},
                     "note": {"type": "string"},
+                    "moment": {"type": "string", "enum": ["none", "fight", "flirt", "apology", "confided", "advice", "teasing"]},
+                    "by": {"type": "string"},
                 },
-                "required": ["a", "b", "familiarity_delta", "affinity_delta", "note"],
+                "required": ["a", "b", "familiarity_delta", "affinity_delta", "note", "moment", "by"],
                 "additionalProperties": False,
             },
         },
@@ -224,7 +226,10 @@ class AnthropicLLM:
                 "or an empty string if there is nothing natural to follow up on. "
                 "Relationship deltas: familiarity 0 to 8, affinity -8 to 8. Strangers who just met and chatted "
                 "pleasantly gain about +4 familiarity. Use a short note only when something worth remembering "
-                "about the pair happened, otherwise an empty string. Use names exactly as given."
+                "about the pair happened, otherwise an empty string. moment is 'none' unless one clearly happened between the pair: "
+                "a real fight, flirting (not just friendliness), an apology, one confiding something personal, "
+                "advice from the more experienced, or playful teasing. by is the name of who did it (flirted, "
+                "apologized, gave the advice), or an empty string. Use names exactly as given."
             ),
             messages=[{"role": "user", "content": f"People (name | what they already know of each other):\n{roster}\n\nTranscript:\n{transcript}"}],
         )

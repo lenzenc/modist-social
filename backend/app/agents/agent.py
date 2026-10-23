@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from app.agents.prompts import persona_prompt
 from app.config import settings
 from app.llm.types import TurnRequest, Utterance
-from app.sim import environment, human, life
+from app.sim import bonds, environment, human, life
 from app.sim import god as godmode
 from app.sim import sales
 from app.sim.social import RECALL_MAX, RECALL_QUICK, rel_time, relation_label
@@ -74,6 +74,8 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
         line = f"- {o.display} ({o.pronouns}; {o.persona['job']}): {relation_label(rel)}."
         if rel.met_at and (now - rel.met_at).days < 7:
             line += f" You met {rel_time(rel.met_at, now)}."
+        if hint := (bonds.scene_hint(rel, p.id, o.short, bonds.attached(p.persona), now, rng) if not p.is_bartender and not o.is_bartender else ""):
+            line += f" {hint}"
         if rel.notes:
             line += f" What you know: {rel.notes[:220]}"
         out.append(line)

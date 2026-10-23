@@ -155,6 +155,12 @@ class RelState:
     affinity: int = 0
     notes: str = ""
     met_at: datetime | None = None
+    bond: str = ""  # see sim/bonds.py; empty until backfilled from the numbers
+    bond_since: datetime | None = None
+    bond_until: datetime | None = None  # when a falling-out stops being fresh
+    prior: str = ""  # the bond a falling-out or a crush interrupted
+    crush_by: str = ""
+    mentor_id: str = ""
 
 
 @dataclass

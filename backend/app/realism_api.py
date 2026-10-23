@@ -5,8 +5,8 @@ from datetime import date, datetime, time, timedelta
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
-from app.db.models import LifeEvent, Message, Person, Session, Thread, get_state
-from app.sim import life, realism
+from app.db.models import BondChange, LifeEvent, Message, Person, Session, Thread, get_state
+from app.sim import bonds, life, realism
 from app.sim.state import display_name
 
 router = APIRouter(prefix="/api/realism")
@@ -53,6 +53,9 @@ async def summary(period: str = "day", date: str = ""):
             .order_by(Message.id)
         )).all()
         names = {pid: display_name(n) for pid, n in (await s.execute(select(Person.id, Person.name))).all()}
+        moves = (await s.scalars(select(BondChange).where(
+            BondChange.sim_ts >= datetime.combine(start, time.min), BondChange.sim_ts < datetime.combine(end, time.min)
+        ).order_by(BondChange.id.desc()))).all()
         events: dict[str, list[life.LifeEventRec]] = defaultdict(list)
         for r in (await s.scalars(select(LifeEvent).where(
             LifeEvent.started_at < datetime.combine(end, time.min), LifeEvent.ends_at > datetime.combine(start, time.min)
@@ -79,7 +82,11 @@ async def summary(period: str = "day", date: str = ""):
         g = grade([d])
         series.append({"key": d.isoformat(), "label": d.strftime("%a %-d"), "overall": g["overall"], **g["metrics"]})
     in_range = [(d, sid, text) for d in days for _, sid, text in by_day.get(d, [])]
+    patron_days = len({(d, sid) for d, sid, _ in in_range if not sid.startswith("b")})
+    listed = [{"a": names.get(c.a_id, c.a_id), "b": names.get(c.b_id, c.b_id), "from": c.from_bond, "to": c.to_bond,
+               "why": c.why, "day": c.sim_ts.date().isoformat()} for c in moves[:30]]
     return {
+        "bonds": {"changes": len(moves), "patron_days": patron_days, "list": listed, **bonds.drama(len(moves), patron_days, len(days))},
         "range": {"start": start.isoformat(), "end": (end - timedelta(days=1)).isoformat(), "period": period},
         **result, "series": series, "life": life.continuity(in_range, events, names),
     }

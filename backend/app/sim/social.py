@@ -4,8 +4,9 @@ from datetime import datetime
 
 from sqlalchemy import select, update
 
-from app.db.models import Memory, Relationship, Session
+from app.db.models import BondChange, Memory, Relationship, Session
 from app.seed.loader import pair_key
+from app.sim import bonds
 from app.sim.state import MemoryRec, RelState
 
 MAX_MEMORIES = 200  # held in RAM per person; the pool recall scores from
@@ -32,7 +33,9 @@ def relation_label(rel: RelState) -> str:
     f = rel.familiarity
     if f <= 0:
         return "you have never met"
-    if rel.kind not in ("stranger", "acquaintance") and f >= 30:
+    if special := bonds.label(rel):
+        base = special
+    elif rel.kind not in ("stranger", "acquaintance") and f >= 30:
         base = rel.kind
     elif f < 25:
         base = "you've seen them around"
@@ -57,7 +60,11 @@ class Social:
     async def load(self) -> None:
         async with Session() as s:
             for r in (await s.scalars(select(Relationship))).all():
-                self.rels[(r.a_id, r.b_id)] = RelState(r.kind, r.familiarity, r.affinity, r.notes, r.met_at)
+                self.rels[(r.a_id, r.b_id)] = RelState(
+                    r.kind, r.familiarity, r.affinity, r.notes, r.met_at,
+                    r.bond or bonds.from_seed(r.kind, r.familiarity, r.affinity), r.bond_since, r.bond_until,
+                    r.prior or "", r.crush_by or "", r.mentor_id or "",
+                )
             rows = (await s.scalars(select(Memory).order_by(Memory.id))).all()
         for m in rows:
             self.memories.setdefault(m.person_id, []).append(MemoryRec(m.sim_ts, m.text, m.about or [], m.importance or 5, m.kind or "event", m.id))
@@ -74,6 +81,8 @@ class Social:
         rel.affinity = max(-100, min(100, rel.affinity + max(-8, min(8, aff))))
         if rel.kind == "stranger" and rel.familiarity >= 15:
             rel.kind = "acquaintance"
+        if rel.bond in ("", "stranger") and rel.familiarity >= 15:
+            rel.bond = "acquaintance"
         if note.strip():
             parts = [p for p in rel.notes.split(" | ") if p]
             parts.append(note.strip()[:160])
@@ -86,7 +95,32 @@ class Social:
                 s.add(row)
             row.kind, row.familiarity, row.affinity, row.notes = rel.kind, rel.familiarity, rel.affinity, rel.notes
             row.met_at = rel.met_at
+            row.bond = rel.bond
             await s.commit()
+
+    async def set_bond(self, a: str, b: str, change: bonds.Change, now: datetime) -> str:
+        """Move a pair to a new bond and record it. Returns the bond they had."""
+        key = pair_key(a, b)
+        rel = self.rels.setdefault(key, RelState())
+        old = rel.bond or "stranger"
+        if change.new in ("falling_out", "crush"):
+            rel.prior = old
+        elif old in ("falling_out", "crush"):
+            rel.prior = ""
+        rel.bond, rel.bond_since, rel.bond_until = change.new, now, change.until
+        rel.crush_by = change.by if change.new == "crush" else ""
+        rel.mentor_id = change.by if change.new == "mentor" else ""
+        async with Session() as s:
+            row = await s.get(Relationship, key)
+            if row is None:
+                row = Relationship(a_id=key[0], b_id=key[1], kind=rel.kind, familiarity=rel.familiarity,
+                                   affinity=rel.affinity, notes=rel.notes, met_at=rel.met_at)
+                s.add(row)
+            row.bond, row.bond_since, row.bond_until = rel.bond, rel.bond_since, rel.bond_until
+            row.prior, row.crush_by, row.mentor_id = rel.prior, rel.crush_by, rel.mentor_id
+            s.add(BondChange(a_id=key[0], b_id=key[1], from_bond=old, to_bond=change.new, why=change.why, sim_ts=now))
+            await s.commit()
+        return old
 
     async def mark_met(self, a: str, b: str, ts: datetime) -> None:
         """Record the day these two first met."""
