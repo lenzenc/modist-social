@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from app.db.models import BondChange, LifeEvent, Memory, Message, Person, SaleItem, Session, Thread, get_state
-from app.sim import beats, bonds, drunk, dynamics, gossip, life, realism, staff, taste
+from app.sim import beats, bonds, drunk, dynamics, gossip, life, occasions, realism, staff, taste
 from app.sim.state import display_name
 
 router = APIRouter(prefix="/api/realism")
@@ -58,6 +58,8 @@ async def summary(period: str = "day", date: str = ""):
         taste_log = [e for e in (await get_state(s, "taste_log", []) or []) if start.isoformat() <= e["day"] < end.isoformat()]
         group_log = [e for e in (await get_state(s, "group_log", []) or []) if start.isoformat() <= e["day"] < end.isoformat()]
         staff_log = [e for e in (await get_state(s, "staff_log", []) or []) if start.isoformat() <= e["day"] < end.isoformat()]
+        calendar_log = [e for e in (await get_state(s, "calendar_log", []) or []) if start.isoformat() <= e["day"] < end.isoformat()]
+        history = await get_state(s, "history", []) or []
         sold = (await s.execute(select(SaleItem.person_id, SaleItem.drink).where(
             SaleItem.sim_ts >= datetime.combine(start, time.min), SaleItem.sim_ts < datetime.combine(end, time.min),
             SaleItem.buyer_id.is_(None)).order_by(SaleItem.id))).all()
@@ -110,6 +112,7 @@ async def summary(period: str = "day", date: str = ""):
         **result, "series": series, "life": life.continuity(in_range, events, names),
         "drunk": drunk.consequences(drunk_log),
         "staff": staff.report(staff_log),
+        "rhythm": {**occasions.report(calendar_log, history, in_range, end - timedelta(days=1)), "list": list(reversed(history))[:10]},
         "taste": taste.habits(taste_log, [(pid, drink) for pid, drink in sold]),
         "groups": dynamics.report(group_log, [l for d in days for l in by_day.get(d, [])], threads, patron_days),
         "quiet": beats.quiet_share(len(acted), len(in_range), sum(1 for a in acted if a is None)),
@@ -136,3 +139,11 @@ async def days():
         first = (await s.execute(select(Message.sim_ts).order_by(Message.id).limit(1))).scalar()
         last = (await s.execute(select(Message.sim_ts).order_by(Message.id.desc()).limit(1))).scalar()
     return {"first": first.date().isoformat() if first else None, "last": last.date().isoformat() if last else None}
+
+
+@router.get("/history")
+async def room_history():
+    """The nights the room remembers, newest first."""
+    async with Session() as s:
+        rows = await get_state(s, "history", []) or []
+    return list(reversed(rows))

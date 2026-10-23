@@ -24,8 +24,20 @@ def _norm(text: str) -> str:
 
 
 @lru_cache(maxsize=1)
-def drinks() -> list[dict]:
+def _seed() -> list[dict]:
     return yaml.safe_load(DRINKS_FILE.read_text())
+
+
+_released: list[dict] = []  # beers that have joined the board since opening, in order: see sim.occasions
+
+
+def set_released(entries: list[dict]) -> None:
+    """Put released beers on the board (the director calls this on load and on release night)."""
+    _released[:] = [{k: v for k, v in e.items() if k != "blurb"} for e in entries]
+
+
+def drinks() -> list[dict]:
+    return _seed() + _released
 
 
 def names() -> list[str]:

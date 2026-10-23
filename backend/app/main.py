@@ -17,7 +17,7 @@ from app.realism_api import router as realism_router
 from app.sales_api import router as sales_router
 from app.seed.loader import seed_if_empty
 from app.sim import god as godmode
-from app.sim import drunk, life, staff, taste
+from app.sim import drunk, life, occasions, staff, taste
 from app.sim.director import Director
 from app.sim.state import CHANNEL_DESC, CHANNELS
 
@@ -192,7 +192,8 @@ async def person(pid: str):
         "why": c.why, "sim_ts": c.sim_ts.isoformat(),
     } for c in changes]
     return {**_person(p), "persona": p.persona, "relationships": rels[:30], "bond_changes": bond_changes, "memories": mems, "state": state, "shift": shift_view,
-            "lately": director.lives.get(pid, ""), "visits": director.visits.get(pid, {}).get("n", 0), "taste": taste_view,
+            "lately": director.lives.get(pid, ""), "birthday": None if p.is_bartender else list(occasions.birthday(pid, p.persona)),
+            "moved": director.moved.get(pid), "visits": director.visits.get(pid, {}).get("n", 0), "taste": taste_view,
             "life": [{"text": e.text, "cat": e.cat, "started_at": e.started_at.isoformat(), "ends_at": e.ends_at.isoformat(),
                       "active": life.freshness(e, director.clock.now()) > 0}
                      for e in reversed(director.life.get(pid, [])[-5:])]}

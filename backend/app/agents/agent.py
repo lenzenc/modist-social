@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from app.agents.prompts import persona_prompt
 from app.config import settings
 from app.llm.types import TurnRequest, Utterance
-from app.sim import beats, bonds, drunk, dynamics, environment, gossip, human, life, staff, taste
+from app.sim import beats, bonds, drunk, dynamics, environment, gossip, human, life, occasions, staff, taste
 from app.sim import god as godmode
 from app.sim import sales
 from app.sim.social import RECALL_MAX, RECALL_QUICK, rel_time, relation_label
@@ -27,6 +27,43 @@ def clean_say(text: str, p: PersonState) -> str:
 
 def _drinking(p: PersonState) -> str:
     return f", drinking {p.drink}" if p.drink else " with a beer"
+
+
+def _occasion_notes(d, p: PersonState, others: list[PersonState], now: datetime, rng: random.Random) -> tuple[list[str], str, str, bool]:
+    """What the calendar puts in this person's head: a birthday, a move, a visitor from away, a night the room remembers."""
+    notes: list[str] = []
+    bday = fare = ""
+    back = False
+    room = [x for x in d.people.values() if x.present and not x.is_bartender]
+
+    def knows(x: PersonState) -> bool:
+        return x in others or d.social.rel(p.id, x.id).familiarity >= 25
+
+    honorees = d.birthdays_today()
+    if p.id in honorees:
+        notes.append(occasions.birthday_note(p.short, True))
+        bday = "you"
+    elif guest := next((x for x in room if x.id in honorees and knows(x)), None):
+        notes.append(occasions.birthday_note(guest.short, False))
+        bday = guest.short
+    plan = d.farewell
+    phase = occasions.farewell_phase(plan, now.date()) if plan else ""
+    if phase in ("announced", "tonight"):
+        leaver = d.people[plan["pid"]]
+        if p.id == leaver.id:
+            notes.append(occasions.farewell_note(plan, leaver.short, True, phase))
+            fare = "you"
+        elif d.social.rel(p.id, leaver.id).familiarity >= 35:
+            notes.append(occasions.farewell_note(plan, leaver.short, False, phase))
+            fare = leaver.short
+    if p.id in d.visiting:
+        notes.append(occasions.back_note(d.moved[p.id]["city"], p.short, True))
+        back = True
+    elif visitor := next((x for x in room if x.id in d.visiting and knows(x)), None):
+        notes.append(occasions.back_note(d.moved[visitor.id]["city"], visitor.short, False))
+    if not p.is_bartender and (lore := occasions.lore_line(d.history, now, d.visits.get(p.id, {}).get("n", 0), rng)):
+        notes.append(lore)
+    return notes, bday, fare, back
 
 
 def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnRequest:
@@ -60,7 +97,7 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
         out.append(f"It is {fmt_time(now)}. You are at the {where} of Modist Social{_drinking(p)}.")
 
     guests_in = sum(1 for x in d.people.values() if x.present and not x.is_bartender)
-    out.append(environment.room_line(now, guests_in, d.song(now)))
+    out.append(environment.room_line(now, guests_in, d.song(now), occasions.room_bits(now, d.released)))
     shift = d.staff.get(p.id) if p.is_bartender else None
     if not p.is_bartender and (feel := human.right_now(p, now)):
         out.append(feel)
@@ -69,6 +106,8 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
     mine = d.life.get(p.id, []) if not p.is_bartender else []
     if mind := life.on_mind(mine, now):
         out.append(mind)
+    notes, bday, fare, back = _occasion_notes(d, p, others, now, rng)
+    out.extend(notes)
 
     out.append("\nIn this conversation with you:")
     greeted = None
@@ -180,6 +219,10 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
             want, ask_rec = _order_want(t, bt_spoke)
             if t.treat:
                 pick += " " + taste.treat_note([d.people[m].short for m in t.party if m in d.people])
+                if honored := [d.people[m].short for m in t.party if m in d.birthdays_today()]:
+                    pick += f" It's {honored[0]}'s birthday, which is why you're buying."
+                elif d.farewell and d.farewell["pid"] in t.party:
+                    pick += f" It's {d.people[d.farewell['pid']].short}'s last night before the move, so the round is a send-off."
             if t.again and t.ask:
                 hints.append(f"The bartender is offering another. {pick} If you want one, say so and put its exact board name in drink (even for 'same again'); if you have had enough, politely pass and leave drink empty. {_pay_note(p)}")
             elif not t.lines and t.again:
@@ -222,6 +265,9 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
     elif flagging:
         steer = on_event and (bled or rng.random() < 0.5 + 0.4 * godmode.heat(god, now_))
         topic = godmode.steer(event) if steer else pick_topic(rng)
+        if not steer and rng.random() < 0.4:
+            leaver = d.people[d.farewell["pid"]].short if d.farewell and occasions.farewell_phase(d.farewell, now.date()) else ""
+            topic = occasions.spark(now, d.released, d.history, leaver, rng) or topic
         hints.append(f"If the talk is flagging, steer it toward: {topic}.")
         t.last_topic_turn = t.turns
     if t.kind == "chat" and t.channel == "bar":
@@ -337,6 +383,8 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
         joke=joke, laughed=laughed, interrupted=interrupted, interrupting=interrupting, steer=steer, outsider=outsider, vibe=vibe,
         tired=staff.tired_word(shift) if shift is not None and shift.fatigue >= staff.TIRED else "",
         rough=bool(shift and shift.rough), peeve=peeve, favorite=favorite, gripe=gripe, grumble=grumble,
+        occasion=occasions.label(now, d.released), birthday=bday, farewell=fare, back_in_town=back,
+        incident=inc.kind if (inc := occasions.incident_active(now)) and inc.kind in ("power_out", "fire_alarm") else "",
         life=(life.freshest(mine, now, 1)[0].text if life.freshest(mine, now, 1) else ""),
         rumor=_rumor_for_mock(rumors, names, around, [o.short for o in others if not o.is_bartender], rng)
         if t.kind == "chat" and not p.is_bartender else None,

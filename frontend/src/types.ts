@@ -78,6 +78,7 @@ export interface Clock {
   on_shift: string[];
   budget_paused: boolean;
   crowd: number;
+  occasion?: string;
 }
 
 export interface Stats {

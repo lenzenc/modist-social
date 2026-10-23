@@ -3,7 +3,7 @@ import logging
 import math
 import random
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import delete, func, select, update
 
@@ -15,7 +15,7 @@ from app.config import settings
 from app.db.models import LifeEvent, Message, NewsItem, Payment, Person, SaleItem, Session, SimState, Thread, get_state, set_state
 from app.llm.usage import usage
 from app.seed.loader import color_for
-from app.sim import beats, bonds, drunk, dynamics, environment, human, life, newcomers, realism, staff, taste
+from app.sim import beats, bonds, drunk, dynamics, environment, human, life, newcomers, occasions, realism, staff, taste
 from app.sim import god as godmode
 from app.sim import groups, menu, sales, seating
 from app.sim.clock import DEFAULT_START, SimClock, is_open, launch_time, open_close
@@ -86,6 +86,15 @@ class Director:
         self.group_log: list[dict] = []  # splits, interruptions, jokes, steers and outsiders, for the scorecard
         self.staff: dict[str, staff.Shift] = {}  # bartender id -> how their shift is going: see sim.staff
         self.staff_log: list[dict] = []  # one row per finished shift, for the scorecard
+        self.history: list[dict] = []  # nights the room remembers: see sim.occasions
+        self.moved: dict[str, dict] = {}  # pid -> {"city", "day"} for a regular who has moved away
+        self.farewell: dict | None = None  # the move in the works: see occasions.roll_farewell
+        self.released: list[dict] = []  # beers that have joined the board: {"name", "day"}
+        self.calendar_log: list[dict] = []  # one row per day: what the calendar put on it, for the scorecard
+        self.day_events: set[str] = set()  # kinds of occasion that happened today
+        self.toast: dict[str, str] = {}  # pid -> "birthday" | "farewell": a friend owes them a round tonight
+        self.visiting: set[str] = set()  # people who moved away and are back for a visit
+        self._bdays: tuple[date, set[str]] | None = None
         self.beat_pool: dict[str, list[str]] = {}  # pid -> model-written idle beats not yet used
         self.beat_calls: list[datetime] = []  # when the batched beats call last ran
         self.beat_busy = False
@@ -136,6 +145,14 @@ class Director:
             self.gossip_log = await get_state(s, "gossip_log", []) or []
             self.group_log = await get_state(s, "group_log", []) or []
             self.staff_log = await get_state(s, "staff_log", []) or []
+            self.history = await get_state(s, "history", []) or []
+            self.moved = await get_state(s, "moved", {}) or {}
+            self.farewell = await get_state(s, "farewell", None) or None
+            self.released = await get_state(s, "released", []) or []
+            self.calendar_log = await get_state(s, "calendar_log", []) or []
+        if self.released:
+            menu.set_released([e for r in self.released if (e := occasions.release_entry(r["name"]))])
+            self.world_text = world_prompt(settings.brewery_city)
         for p in self.people.values():
             self.persona_text[p.id] = persona_prompt(p, self.lives.get(p.id, ""))
         await self.social.load()
@@ -193,7 +210,114 @@ class Director:
         await self.morning_after(now, day)
         for p in self.patrons():
             taste.daily(self.taste_of(p), day)
+        await self.occasion_day(now, day)
         await self.save_clock()
+
+    # ---------------------------------------------------------------- the calendar
+
+    def birthdays_today(self) -> set[str]:
+        d = self.clock.now().date()
+        if self._bdays is None or self._bdays[0] != d:
+            self._bdays = (d, {p.id for p in self.patrons() if p.id not in self.moved and occasions.is_birthday(p.id, p.persona, d)})
+        return self._bdays[1]
+
+    def occasion_stay(self, p: PersonState, now: datetime) -> float:
+        """A birthday or a last night keeps someone longer."""
+        if self.farewell and self.farewell["pid"] == p.id and occasions.farewell_phase(self.farewell, now.date()) == "tonight":
+            return 1.6
+        return 1.3 if p.id in self.birthdays_today() else 1.0
+
+    def invite(self, p: PersonState, friends: list[PersonState], now: datetime, day: str) -> None:
+        """Plan for p to come in this evening, and for some friends to follow: a birthday or a last night shouldn't pass unmarked."""
+        if p.present or p.visited_day == day or p.pending_arrival is not None:
+            return
+        rng = random.Random(f"{day}:{p.id}:invite")
+        mid = datetime.combine(now.date(), datetime.min.time())
+        when = max(mid + timedelta(hours=17 + rng.randint(0, 2), minutes=rng.choice([0, 15, 30, 45])), now)
+        p.pending_arrival = when
+        for q in friends:
+            if not q.present and q.visited_day != day and q.pending_arrival is None and rng.random() < 0.7:
+                q.pending_arrival = when + timedelta(minutes=rng.randint(10, 60))
+
+    def close_friends_of(self, p: PersonState) -> list[PersonState]:
+        return [q for q in self.patrons() if q.id != p.id and q.id not in self.moved
+                and (r := self.social.rel(p.id, q.id)).familiarity >= 50 and r.affinity >= 0]
+
+    async def occasion_day(self, now: datetime, day: str) -> None:
+        """Once a sim day: a new beer, whose birthday it is, and the move a regular may be planning."""
+        d = now.date()
+        if occasions.release_due(d) and not occasions.release_tonight(self.released, now) and (r := occasions.next_release(self.released)):
+            self.released.append({"name": r["name"], "day": day})
+            menu.set_released([e for x in self.released if (e := occasions.release_entry(x["name"]))])
+            self.world_text = world_prompt(settings.brewery_city)
+        self.toast = {}
+        for pid in self.birthdays_today():
+            self.toast[pid] = "birthday"
+            self.invite(self.people[pid], self.close_friends_of(self.people[pid]), now, day)
+        plan = self.farewell
+        if occasions.farewell_phase(plan, d) == "over":
+            self.finish_move(plan, day, said_goodbye=False)
+            plan = None
+        if plan is None:
+            here = [p.id for p in self.patrons() if p.id not in self.moved and not p.persona.get("walkin")
+                    and self.visits.get(p.id, {}).get("n", 0) >= occasions.MIN_VISITS_TO_LEAVE]
+            if plan := occasions.roll_farewell(here, d, random.Random(f"{day}:farewell")):
+                self.farewell = plan
+                await self.announce_move(plan, now)
+            return
+        if occasions.farewell_phase(plan, d) == "tonight":
+            leaver = self.people[plan["pid"]]
+            self.toast[leaver.id] = "farewell"
+            self.invite(leaver, self.close_friends_of(leaver), now, day)
+
+    async def announce_move(self, plan: dict, now: datetime) -> None:
+        leaver = self.people[plan["pid"]]
+        night = date.fromisoformat(plan["night"]).strftime("%A")
+        text = f"{leaver.short} is moving to {plan['city']}. The last night at the taproom is {night}."
+        await self.social.add_memory(leaver.id, now, f"I'm moving to {plan['city']}; my last night at the taproom is {night}.", [], 8)
+        for q in self.close_friends_of(leaver):
+            await self.social.add_memory(q.id, now, text, [leaver.id], 7, kind="followup")
+
+    def finish_move(self, plan: dict, day: str, said_goodbye: bool) -> None:
+        leaver = self.people[plan["pid"]]
+        self.moved[leaver.id] = {"city": plan["city"], "day": day}
+        self.farewell = None
+        self.toast.pop(leaver.id, None)
+        self.history.append(occasions.history_row(day, "farewell", f"the night {leaver.short} left for {plan['city']}", [leaver.short],
+                                                  [plan["city"].lower(), "moving", "goodbye", "farewell"]))
+        del self.history[:-occasions.HISTORY_KEEP]
+        if said_goodbye:
+            self.day_events.add("farewell")
+
+    async def send_off(self, p: PersonState, now: datetime) -> None:
+        """The last night ends: everyone still here says goodbye, and the move is done."""
+        plan = self.farewell
+        others = [q for q in self.patrons() if q.present and q.id != p.id and self.social.rel(p.id, q.id).familiarity >= 20]
+        await self.post("door", f"💐 {p.short} says a round of goodbyes. {plan['city']} is waiting.", kind="system")
+        await self.social.add_memory(p.id, now, f"My last night at the taproom before moving to {plan['city']}. I'll miss it.", [q.id for q in others], 8)
+        for q in others:
+            await self.social.add_memory(q.id, now, f"Said goodbye to {p.short} on the last night before the move to {plan['city']}.", [p.id], 8)
+        self.finish_move(plan, now.strftime("%Y-%m-%d"), said_goodbye=True)
+
+    async def toasts(self, now: datetime) -> None:
+        """A friend buys the birthday guest, or the one leaving, a round, once they've settled in."""
+        for pid, kind in list(self.toast.items()):
+            p = self.people[pid]
+            if not p.present or p.waiting or not p.arrived_at or now - p.arrived_at < timedelta(minutes=15) or drunk.service(p) != "pour":
+                continue
+            buyer = next((q for q in self.patrons() if q.present and q.id != pid and q.location == p.location and not q.waiting
+                          and q.thread_id is None and not q.wants_leave and self.social.rel(pid, q.id).familiarity >= 40
+                          and self.social.rel(pid, q.id).affinity >= 0), None)
+            if buyer is None or not self.bartenders_on():
+                continue
+            del self.toast[pid]
+            self.day_events.add(kind)
+            day = now.strftime("%Y-%m-%d")
+            if kind == "birthday":
+                self.history.append(occasions.history_row(day, "birthday", f"{p.short}'s birthday night", [p.short, buyer.short], ["birthday"]))
+                del self.history[:-occasions.HISTORY_KEEP]
+                await self.social.add_memory(pid, now, f"Spent my birthday at the taproom; {buyer.short} bought me a drink.", [buyer.id], 7)
+            await self.request_order(buyer, [pid], treat=True)
 
     async def morning_after(self, now: datetime, day: str) -> None:
         """Whoever overdid it last night remembers it today, and may owe someone an apology."""
@@ -364,7 +488,7 @@ class Director:
         return {
             "type": "clock", "sim_now": now.isoformat(), "speed": self.clock.speed,
             "effective_speed": round(self.clock.effective, 1), "crowd_level": self.crowd,
-            "god": self.god_view(),
+            "god": self.god_view(), "occasion": occasions.label(now, self.released),
             "paused": self.clock.paused, "open": is_open(now),
             "on_shift": [b for b in (self.shift or ())], "budget_paused": self.budget_paused,
             "crowd": sum(1 for p in self.patrons() if p.present),
@@ -434,7 +558,7 @@ class Director:
         await self.post(thread.channel if thread else (p.location or "door"), text, p.id, "action", thread)
 
     def song(self, now: datetime) -> tuple[str, str] | None:
-        return self.now_playing[:2] if self.now_playing and now < self.now_playing[2] else None
+        return self.now_playing[:2] if self.now_playing and now < self.now_playing[2] and not occasions.music_off(now) else None
 
     async def open_thread(self, channel: str, kind: str, members: list[str], max_turns: int,
                           seated: bool = False, again: bool = False, ask: bool = False) -> ThreadState:
@@ -713,8 +837,12 @@ class Director:
             # Passed on another: they want fewer drinks, and the bartender will not ask again right away.
             guest.drink_goal = max(guest.drinks, guest.drink_goal - 1)
             guest.next_drink_at = now + timedelta(minutes=30) if guest.drinks < guest.drink_goal else None
+            if t.treat:
+                await self.round_for(guest, t, bt)  # passing on their own doesn't cancel the round they offered
         else:
             guest.next_drink_at = now + timedelta(minutes=5)  # never settled on a drink; try again shortly
+            if t.treat:
+                await self.round_for(guest, t, bt)
         for pid in ([] if t.treat else t.party):  # nobody in a party is left waiting on an order that never paid
             q = self.people[pid]
             if q.present and q.drinks == 0 and q.next_drink_at is None:
@@ -946,7 +1074,10 @@ class Director:
         free, cap = self.area_room()
         if no_bar:
             free["bar"] = 0
-        return seating.pick_area(self.rng, seating.area_weights(min(party, 3), lean, knows, fan, now, free, cap))
+        weights = seating.area_weights(min(party, 3), lean, knows, fan, now, free, cap)
+        if booked := occasions.party_on(now):
+            weights[booked.area] = 0.0  # a private party has it
+        return seating.pick_area(self.rng, weights)
 
     async def sit(self, p: PersonState, text: str, near: list[int] | None = None) -> bool:
         stool = self.free_stool(near)
@@ -1336,7 +1467,7 @@ class Director:
         now = self.clock.now()
         p.present, p.location, p.visited_day, p.wants_leave, p.pending_arrival = True, "ordering", now.strftime("%Y-%m-%d"), False, None
         mine = self.life.get(p.id, [])
-        stay = p.persona.get("stay", 90) * self.rng.uniform(0.6, 1.5) * human.stay_scale(p.persona) * life.stay_mult(mine, now)
+        stay = p.persona.get("stay", 90) * self.rng.uniform(0.6, 1.5) * human.stay_scale(p.persona) * life.stay_mult(mine, now) * self.occasion_stay(p, now)
         close = open_close(now)[1]
         p.leave_at = min(now + timedelta(minutes=stay), close + timedelta(minutes=self.rng.uniform(0, 5)))
         p.free_since = None
@@ -1350,7 +1481,8 @@ class Director:
         p.gap_days = max(0, (now.date() - datetime.fromisoformat(prev["last"]).date()).days) if prev.get("last") else 0
         self.visits[p.id] = {"n": prev.get("n", 0) + 1, "last": now.isoformat()}
         p.arrived_at, p.reason, p.busy_until, p.thought = now, life.reason_override(mine, now) or human.pick_reason(p.persona, self.rng), None, ""
-        p.mood = max(-1.0, min(1.0, human.opening_mood(p.persona, self.rng) + life.mood_shift(mine, now)))
+        p.mood = max(-1.0, min(1.0, human.opening_mood(p.persona, self.rng) + life.mood_shift(mine, now) + occasions.mood_shift(now)
+                                    + (0.3 if p.id in self.birthdays_today() else 0.0)))
         p.buzz, p.battery = 0.0, self.rng.uniform(0.8, 1.0)
         p.peak_buzz, p.cut_off, p.on_water_until, p.slops, p.overshare_pending, p.overshared_with = 0.0, False, None, [], False, set()
         p.spent, p.cap = 0, taste.visit_cap(p.persona, mine, now, life.freshness)
@@ -1366,6 +1498,8 @@ class Director:
 
     async def arrive(self, p: PersonState) -> None:
         self.check_in(p)
+        if p.id in self.moved:
+            self.visiting.add(p.id)
         now = self.clock.now()
         close = open_close(now)[1]
         await self.post("door", f"🍺 {p.display} walks in.", kind="system")
@@ -1422,6 +1556,9 @@ class Director:
         await self.close_tab(p)
         self.queue = [w for w in self.queue if w.pid != p.id]
         now = self.clock.now()
+        if self.farewell and self.farewell["pid"] == p.id and occasions.farewell_phase(self.farewell, now.date()) == "tonight":
+            await self.send_off(p, now)
+        self.visiting.discard(p.id)
         pt = self.parties.get(p.party) if p.party is not None else None
         ride = drunk.ride_home(p, [self.people[m] for m in pt.members] if pt else [], self.rng)
         if rec := drunk.record(p, now.strftime("%Y-%m-%d"), ride[0] if ride else ""):
@@ -1557,6 +1694,7 @@ class Director:
             self.closed_day = day
             await self.post("door", "🔒 Modist Social is closed. Thanks for coming out.", kind="system")
             self.spawn(reflect_day(self, day))
+            self.log_calendar(now, day)
         elif not self.threads and not any(p.present for p in self.patrons()) and (resume := launch_time(now)) != now:
             # Nobody is left and nothing is happening: skip the dead hours instead of watching them go by.
             await self.post("door", f"⏩ Closed for the night. Skipping ahead to {(resume + timedelta(minutes=10)).strftime('%-I:%M%p').lower()} opening.", kind="system")
@@ -1701,6 +1839,71 @@ class Director:
         if environment.trivia_on(now) and f"{day}-trivia" not in self._env_flags:
             self._env_flags.add(f"{day}-trivia")
             await self.post("inside-tables", "🎲 Trivia is starting at the inside tables.", kind="system")
+        await self.calendar_step(now, day)
+
+    async def calendar_step(self, now: datetime, day: str) -> None:
+        """The calendar's part of the room: the holiday, the band, a private party, a release, and anything that goes wrong."""
+        flags = self._env_flags
+        if (h := occasions.holiday(now.date())) and h.post and f"{day}-holiday" not in flags:
+            flags.add(f"{day}-holiday")
+            await self.post("door", h.post, kind="system")
+        band = occasions.band_for(now.date())
+        if band and band.start <= now < band.end and f"{day}-band" not in flags:
+            flags.add(f"{day}-band")
+            await self.post("bar", f"🎸 {band.name} ({band.genre}) start their set.", kind="system")
+        elif band and now >= band.end and f"{day}-band" in flags and f"{day}-bandend" not in flags:
+            flags.add(f"{day}-bandend")
+            await self.post("bar", f"🎸 {band.name} finish their set to a round of applause.", kind="system")
+        if (booked := occasions.party_on(now)) and f"{day}-party" not in flags:
+            flags.add(f"{day}-party")
+            await self.post("door", f"🎉 {booked.what.capitalize()} has the {booked.area.replace('-', ' ')} until {booked.end.strftime('%-I%p').lower()}.", kind="system")
+        if (r := occasions.release_tonight(self.released, now)) and f"{day}-release" not in flags:
+            flags.add(f"{day}-release")
+            await self.post("door", f"🍺 New on the board tonight: {r['name']} ({r['style']}, {r['abv']:g}%). {r['blurb'].capitalize()}.", kind="system")
+            self.history.append(occasions.history_row(day, "release", f"the night {r['name']} hit the board", [], [r["name"].lower(), "release", "new beer"]))
+            del self.history[:-occasions.HISTORY_KEEP]
+        inc = occasions.incident_for(now.date())
+        if inc is None:
+            return
+        guests = [p for p in self.patrons() if p.present]
+        if (inc.start <= now < inc.start + timedelta(hours=2) and f"{day}-incident" not in flags and len(guests) >= 3
+                and not any(row["day"] == day and row["kind"] == inc.kind for row in self.history)):
+            flags.add(f"{day}-incident")
+            await self.run_incident(inc, guests, now, day)
+        elif inc.minutes and now >= inc.end and f"{day}-incident" in flags and f"{day}-incident-end" not in flags:
+            flags.add(f"{day}-incident-end")
+            if text := occasions.incident_end_post(inc):
+                await self.post("door", text, kind="system")
+
+    async def run_incident(self, inc: occasions.Incident, guests: list[PersonState], now: datetime, day: str) -> None:
+        """Something goes wrong, or very right. Everyone there remembers it, and the room keeps it."""
+        memory, who = occasions.incident_memory(inc), [p.short for p in guests][:6]
+        if inc.kind == "proposal":
+            pairs = [(a, b) for a in guests for b in guests if a.id < b.id and self.social.rel(a.id, b.id).bond == "couple"]
+            if not pairs:
+                return
+            a, b = self.rng.choice(pairs)
+            await self.post("bar", f"💍 {a.short} gets down on one knee at the bar and asks {b.short} to marry them. {b.short} says yes!", kind="system")
+            for x in (a, b):
+                human.nudge_mood(x, 0.4)
+            memory, who = f"{a.short} proposed to {b.short} at the bar and the whole room cheered.", [a.short, b.short]
+        elif text := occasions.incident_post(inc):
+            await self.post("door", text, kind="system")
+        for p in guests:
+            if inc.kind == "snowed_in" and p.leave_at:
+                p.leave_at += timedelta(minutes=40)
+                human.nudge_mood(p, 0.1)
+            elif inc.kind == "fire_alarm":
+                human.nudge_mood(p, -0.05)
+            await self.social.add_memory(p.id, now, memory, [], 8)
+        self.history.append(occasions.incident_row(inc, day, who))
+        del self.history[:-occasions.HISTORY_KEEP]
+        self.day_events.add("incident")
+
+    def log_calendar(self, now: datetime, day: str) -> None:
+        self.calendar_log.append({"day": day, "kinds": sorted(occasions.static_kinds(now, self.released) | self.day_events)})
+        del self.calendar_log[:-occasions.LOG_KEEP]
+        self.day_events = set()
 
     async def update_shift(self, now: datetime) -> None:
         pair = on_shift(now) if is_open(now) else None
@@ -1729,7 +1932,11 @@ class Director:
                 continue
             d = p.persona
             rate = arrival_rate(d.get("freq", 2), d.get("days", []), d.get("window", [17, 20]), now) * self.crowd
-            rate *= life.visit_mult(self.life.get(p.id, []), now)
+            rate *= life.visit_mult(self.life.get(p.id, []), now) * occasions.crowd(now)
+            if p.id in self.moved:
+                rate *= occasions.MOVED_VISIT_SCALE
+            elif occasions.release_tonight(self.released, now):
+                rate *= 1 + 0.5 * taste.adventurous(p.persona)
             if self.rng.random() < 1 - math.exp(-rate * dt_min / 60):
                 await self.arrive(p)
 
@@ -1738,7 +1945,7 @@ class Director:
         if (not settings.newcomers_enabled or self.generating or len(self.patrons()) >= settings.max_patrons
                 or self.check_budget()):
             return
-        rate = arrival_rate(settings.newcomers_per_week / NEWCOMER_SCALE, NEWCOMER_DAYS, NEWCOMER_WINDOW, now) * self.crowd
+        rate = arrival_rate(settings.newcomers_per_week / NEWCOMER_SCALE, NEWCOMER_DAYS, NEWCOMER_WINDOW, now) * self.crowd * occasions.crowd(now)
         if self.rng.random() < 1 - math.exp(-rate * dt_min / 60):
             self.generating = True
             self.spawn(self.welcome_newcomer())
@@ -1789,7 +1996,7 @@ class Director:
         """Now and then a party walks in together: regulars, regulars with new faces, or all new faces."""
         if not settings.groups_enabled or self.generating or self.check_budget():
             return
-        rate = arrival_rate(settings.groups_per_week / NEWCOMER_SCALE, groups.GROUP_DAYS, groups.GROUP_WINDOW, now) * self.crowd
+        rate = arrival_rate(settings.groups_per_week / NEWCOMER_SCALE, groups.GROUP_DAYS, groups.GROUP_WINDOW, now) * self.crowd * occasions.crowd(now)
         if self.rng.random() < 1 - math.exp(-rate * dt_min / 60):
             self.generating = True
             self.spawn(self.welcome_group())
@@ -1969,7 +2176,8 @@ class Director:
         rec = self.taste_of(p)
         specials = sales.specials(now) if sales.happy_hour(now) else []
         tight = taste.budget(p.persona) == "tight" or (p.cap > 0 and p.spent >= 0.6 * p.cap)
-        i = taste.intend(rec, p.persona, self.usual_for(p), self.rng, day, specials=specials, tight=tight)
+        release = occasions.release_tonight(self.released, now)
+        i = taste.intend(rec, p.persona, self.usual_for(p), self.rng, day, specials=specials, tight=tight, release=release["name"] if release else "")
         if p.first_visit and not t.again and i.kind != "rec" and self.rng.random() < 0.5:
             i = taste.Intent("rec", "", "you're new here and the bartender offered a taster")
         t.intent = i
@@ -1990,6 +2198,8 @@ class Director:
     async def serve_queue(self, now: datetime) -> None:
         """First in line gets the next free bartender. After two minutes the order beats a chat: the bartender excuses themselves."""
         self.queue = [w for w in self.queue if self.people[w.pid].present and self.people[w.pid].waiting]
+        if occasions.outage(now):
+            return  # no taps, no tills
         while self.queue:
             w = self.queue[0]
             p = self.people[w.pid]
@@ -2015,8 +2225,12 @@ class Director:
 
     async def idle_beat(self, p: PersonState, now: datetime, game, free: list[PersonState]) -> bool:
         """Something a free guest does while nobody talks to them: a glance at the phone, the TV, the jukebox."""
+        if (band := occasions.band_on(now)) and self.rng.random() < 0.3:
+            p.busy_until = now + timedelta(minutes=self.rng.uniform(2, 5))
+            await self.beat(p, f"{p.short} nods along to {band.name}.")
+            return True
         live = environment.live(game, now) and p.location == "bar"
-        jukebox_ok = self.last_song is None or now - self.last_song >= timedelta(minutes=beats.JUKEBOX_COOLDOWN_MIN)
+        jukebox_ok = (self.last_song is None or now - self.last_song >= timedelta(minutes=beats.JUKEBOX_COOLDOWN_MIN)) and not occasions.music_off(now)
         kind = beats.roll_idle(self.rng, p, game_live=live, friends_in_area=bool(free), jukebox_ok=jukebox_ok)
         if kind == "jukebox":
             title, artist = beats.pick_song(self.rng, p.persona)
@@ -2048,7 +2262,7 @@ class Director:
             roster = "\n".join(
                 f"{p.short} | {p.persona.get('job', '')} | {p.persona.get('quirk', '')} | "
                 f"{(p.persona.get('interests') or [''])[0]} | {p.drink or 'no drink'} | {p.location}" for p in guests)
-            room = environment.room_line(now, sum(1 for p in self.patrons() if p.present), self.song(now))
+            room = environment.room_line(now, sum(1 for p in self.patrons() if p.present), self.song(now), occasions.room_bits(now, self.released))
             got = await self.llm.beats(roster, room)
         except Exception:
             log.exception("beats call failed")
@@ -2074,6 +2288,7 @@ class Director:
         taken: set[str] = set()
         game = environment.game_on(now)
         await self.serve_queue(now)
+        await self.toasts(now)
         await self.staff_friction(now, dt_min)
         for loc in LOCATIONS:
             free = [p for p in self.patrons() if p.present and p.location == loc and p.thread_id is None and not p.waiting
@@ -2216,6 +2431,11 @@ class Director:
             await set_state(s, "gossip_log", self.gossip_log)
             await set_state(s, "group_log", self.group_log)
             await set_state(s, "staff_log", self.staff_log)
+            await set_state(s, "history", self.history)
+            await set_state(s, "moved", self.moved)
+            await set_state(s, "farewell", self.farewell)
+            await set_state(s, "released", self.released)
+            await set_state(s, "calendar_log", self.calendar_log)
             await set_state(s, "clock", {
                 "sim_now": self.clock.now().isoformat(), "speed": self.clock.speed,
                 "crowd": self.crowd, "crowd_days": self.crowd_days,

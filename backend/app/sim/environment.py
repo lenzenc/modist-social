@@ -98,9 +98,9 @@ def fan_of(team: str, persona: dict) -> bool:
     return team.lower() in blob or (team == "Timberwolves" and "wolves" in blob)
 
 
-def room_line(now: datetime, guests: int, song: tuple[str, str] | None = None) -> str:
-    """One line of what the room is like, for every guest's scene."""
-    parts = [f"Outside it is {weather(now)}.", f"The taproom is {noise(guests)}."]
+def room_line(now: datetime, guests: int, song: tuple[str, str] | None = None, extra: list[str] | None = None) -> str:
+    """One line of what the room is like, for every guest's scene. `extra` is what the calendar adds (see sim.occasions)."""
+    parts = [f"Outside it is {weather(now)}.", f"The taproom is {noise(guests)}.", *(extra or [])]
     g = game_on(now)
     if live(g, now):
         us, them = score(g, now)

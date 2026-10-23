@@ -20,6 +20,11 @@ export function Header() {
       </div>
       {clock && (
         <div className="flex items-center gap-3">
+          {clock.occasion && (
+            <span className="rounded-full bg-black/[0.06] px-3 py-1 text-xs font-semibold" title="What's special tonight">
+              {clock.occasion}
+            </span>
+          )}
           <a
             href="/sales"
             target="_blank"

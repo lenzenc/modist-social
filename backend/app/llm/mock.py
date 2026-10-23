@@ -64,6 +64,13 @@ _FAVORITE_BT = ["There they are! The usual, or are we feeling brave tonight?", "
 _PEEVE_BT = ["Mm-hm. Go on, I'm listening.", "Sure. Whenever you're ready."]
 _GRIPE_BT = ["Could you grab an order or two, {name}? I was swamped out there.", "{name}, the line was out the door and you were gabbing."]
 _GRIPE_ANSWER_BT = ["Fair, fair. I got caught up. I'll watch the line.", "Ha, okay, point taken. My bad."]
+_MY_BIRTHDAY = ["Okay, yes, it's my birthday, and yes, I'm already on my second beer.", "Don't make a big deal, but it's my birthday."]
+_BIRTHDAY = ["Happy birthday, {name}! First one's on me.", "Is it {name}'s birthday? Somebody get this person a drink."]
+_MY_MOVE = ["I can't believe I'm really leaving. I'm going to miss this place.", "Last night here before the move. Keep the drinks coming."]
+_MOVE = ["Can't believe {name} is really leaving. This place won't be the same.", "We have to give {name} a proper send-off."]
+_BACK = ["It's weird being back. Nothing's changed, and that's what I love about it.", "Just in town for a visit. I had to come here first."]
+_DARK = ["Well, this is atmospheric. Anyone have a flashlight?", "Good thing the beer doesn't need electricity."]
+_ALARM = ["Please tell me that's a false alarm. My beer's still inside.", "Classic. Fire alarm, and I just got my drink."]
 _SLOW = ["Sure thing. Maybe a water to go with it?", "Coming up. Want a glass of water alongside?"]
 _WATER_ASK = ["Actually, just a water for me, I think.", "Water, please. I should slow down."]
 _EXCUSE = ["Be right back, I'll be a few minutes.", "Sorry, I need a breather. Back in a bit.", "Excuse me a sec, nature calls."]
@@ -94,7 +101,6 @@ _DISTORT = [("thinking about", "definitely"), ("last week", "the other day"), ("
             ("is ", "might be "), ("seeing", "sneaking around with")]
 _HEARD = re.compile(r"^(?P<teller>[^:]+): .*?You know what I heard about (?P<about>[^?]+)\? (?P<claim>.+)$")
 _SURE = ["certain", "fairly", "fairly", "doubtful"]
-_BEERS = menu.names()
 _ASK_REC = ["What's good today? Surprise me.", "I'm not sure what I feel like. What would you pour me?", "Got a recommendation? I'm open to anything."]
 
 
@@ -141,7 +147,7 @@ class MockLLM:
         if req.last_line:
             say = _fresh(_REPLIES, req.avoid, r)
         else:
-            say = _fresh([x.format(beer=r.choice(_BEERS)) for x in _OPENERS], req.avoid, r)
+            say = _fresh([x.format(beer=r.choice(menu.names())) for x in _OPENERS], req.avoid, r)
         if req.life and not req.last_line and not req.is_bartender and r.random() < 0.4:
             say = f"Ugh, {req.life.rstrip('.')}."
         action, target, drink = "none", "", ""
@@ -154,7 +160,7 @@ class MockLLM:
                 drink = req.want
                 say = f"Yes please, the {drink} for me."
             elif not req.want and r.random() < 0.75:
-                drink = r.choice(_BEERS)
+                drink = r.choice(menu.names())
                 say = f"Yes please, another {drink}."
             else:
                 say = "I'm good for now, thanks."
@@ -162,7 +168,7 @@ class MockLLM:
             if req.ask_rec:
                 say = r.choice(_ASK_REC)
             else:
-                drink = req.want or r.choice(_BEERS)
+                drink = req.want or r.choice(menu.names())
                 say = f"Can I get a {drink}, please?"
         elif req.kind == "order" and req.is_bartender and not req.last_line:
             say = "Welcome in. What can I get you?"
@@ -215,6 +221,21 @@ class MockLLM:
                 say = r.choice(_TIRED_BT)
         if req.kind == "staff" and req.gripe:
             say = r.choice(_GRIPE_BT if req.grumble else _GRIPE_ANSWER_BT).format(name=req.gripe)
+        if req.kind == "chat" and not req.is_bartender and r.random() < 0.3:
+            if req.incident:
+                say = r.choice(_DARK if req.incident == "power_out" else _ALARM)
+            elif req.birthday:
+                say = r.choice(_MY_BIRTHDAY) if req.birthday == "you" else r.choice(_BIRTHDAY).format(name=req.birthday)
+            elif req.farewell:
+                say = r.choice(_MY_MOVE) if req.farewell == "you" else r.choice(_MOVE).format(name=req.farewell)
+            elif req.back_in_town:
+                say = r.choice(_BACK)
+            elif req.occasion.startswith("Release night: "):
+                say = f"Have you tried the new {req.occasion.split(': ', 1)[1]} yet?"
+            elif req.occasion.startswith("Live music"):
+                say = "These guys are actually good. Who booked them?"
+            elif req.occasion and req.occasion != "Private party":
+                say = f"{req.occasion}, huh? Busy night."
         beat = r.choice(_BEATS) if req.kind == "chat" and req.last_line and r.random() < 0.1 else ""
         if req.lull and req.kind == "chat" and not req.is_bartender and r.random() < 0.4:
             say, beat = "", r.choice(_BEATS)  # a gesture says it

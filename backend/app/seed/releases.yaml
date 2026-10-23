@@ -1,0 +1,9 @@
+# Beers that join the Modist Social board over time, one every other Thursday, in this order. Same shape as drinks.yaml.
+- {name: "Lantern Light", style: "Amber Lager", abv: 5.2, note: "Toasty amber lager with a clean, caramel finish", blurb: "a toasty amber lager brewed for the first cold nights"}
+- {name: "Fog Machine", style: "Hazy Pale Ale", abv: 5.6, note: "Soft, juicy pale ale with Citra and a pillowy body", blurb: "a juicy hazy pale ale the brewers have been teasing for weeks"}
+- {name: "Pumpernickel Porter", style: "Rye Porter", abv: 6.1, note: "Dark rye porter with cocoa, molasses and a dry roast", blurb: "a dark rye porter that tastes like a bakery"}
+- {name: "Second Winter", style: "Winter Warmer", abv: 7.4, note: "Spiced, malty winter ale with orange peel and ginger", blurb: "a spiced winter warmer, small batch"}
+- {name: "Snowplow Pils", style: "Czech Pilsner", abv: 4.9, note: "Snappy, bready Czech-style pilsner with Saaz", blurb: "a crisp Czech pilsner, lagered for two months"}
+- {name: "Tart Cherry Gose", style: "Cherry Gose", abv: 4.6, note: "Salty, tart gose with Montmorency cherries", blurb: "a salty cherry gose"}
+- {name: "Brunch Money", style: "Maple Imperial Stout", abv: 10.2, note: "Thick imperial stout with maple, coffee and toasted pecan", blurb: "a huge maple imperial stout, limited pour"}
+- {name: "Porch Light", style: "Blonde Ale", abv: 4.7, note: "Easy, floral blonde ale for long evenings", blurb: "an easy blonde ale for the first warm nights"}

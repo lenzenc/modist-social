@@ -40,6 +40,7 @@ export interface Summary {
     jokes: { landed: number; mixed: number; flat: number };
     floor: { share: number | null; band: Band; chats: number };
   };
+  rhythm: { rate: number | null; band: Band; days: number; counts: Record<string, number>; history: number; recalled: number; list: { day: string; kind: string; title: string; who: string[] }[] };
   staff: { rate: number | null; band: Band; shifts: number; wrong_pours: number; spills: number; rough: number; gripes: number; peeves: number };
   drunk: { rate: number | null; band: Band; visits: number; cut_offs: number; messes: number; rides: number };
   taste: { variety: number | null; repeat: number | null; band: Band; guests: number; recs: number; taken: number; loved: number; tried_new: number; tired: number; skips: number; rounds: number };

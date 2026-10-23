@@ -109,7 +109,7 @@ def tired_of(rec: TasteRec, day: str) -> list[str]:
 
 
 def intend(rec: TasteRec, persona: dict, last: str, rng: random.Random, day: str, *, specials: list[str] | None = None,
-           tight: bool = False, serve_water: bool = False) -> Intent:
+           tight: bool = False, serve_water: bool = False, release: str = "") -> Intent:
     """What this guest is going to order: the same again, their usual, a switch, something new, or the bartender's call."""
     tired = set(tired_of(rec, day))
     fav = usual(persona)
@@ -122,6 +122,8 @@ def intend(rec: TasteRec, persona: dict, last: str, rng: random.Random, day: str
         return Intent("usual", fav, "your usual")
     if tight and specials and rng.random() < 0.6:
         return Intent("switch", rng.choice(specials), "it's on special and money's tight")
+    if release and release not in rec.tried and release not in tired and rng.random() < 0.15 + 0.45 * adv:
+        return Intent("new", release, "it's the night a new beer joins the board and you want to be one of the first to try it")
     if rng.random() < ASK_REC_BASE + 0.25 * adv:
         return Intent("rec", "", "you're curious what the bartender would pour")
     if rng.random() < NEW_BASE + 0.5 * adv:

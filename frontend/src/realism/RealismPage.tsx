@@ -181,6 +181,33 @@ export default function RealismPage() {
 
           <div className="rounded-lg border border-[var(--border)] p-4">
             <div className="mb-2 flex items-baseline justify-between text-sm">
+              <span className="font-semibold">Rhythm</span>
+              <span style={{ color: BAND_COLOR[summary.rhythm.band] }} className="font-bold">
+                {summary.rhythm.rate === null ? "not enough days yet" : `${summary.rhythm.rate}% of days had something on`}
+              </span>
+            </div>
+            <div className="text-xs text-[var(--muted)]">
+              Days with a holiday, live music, a private party, a release, a birthday, a send-off or an incident ({summary.rhythm.days} days
+              {Object.entries(summary.rhythm.counts).map(([k, n]) => `, ${n} ${k}`).join("")}). {summary.rhythm.recalled} of{" "}
+              {summary.rhythm.history} remembered nights have come up in the talk since. If every day is the same, the room has no rhythm.
+              Not part of the overall score.
+            </div>
+            {summary.rhythm.list.length > 0 && (
+              <table className="mt-2 w-full text-sm">
+                <tbody>
+                  {summary.rhythm.list.map((h, i) => (
+                    <tr key={i} className="border-t border-[var(--border)] first:border-0">
+                      <td className="py-1 pr-3 whitespace-nowrap text-[var(--muted)]">{h.day}</td>
+                      <td className="py-1">{h.title}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-[var(--border)] p-4">
+            <div className="mb-2 flex items-baseline justify-between text-sm">
               <span className="font-semibold">Behind the bar</span>
               <span style={{ color: BAND_COLOR[summary.staff.band] }} className="font-bold">
                 {summary.staff.rate === null ? "not enough shifts yet" : `${summary.staff.rate}% of shifts had something in them`}

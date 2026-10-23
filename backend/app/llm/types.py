@@ -53,6 +53,11 @@ class TurnRequest:
     favorite: bool = False  # the guest in this order is one of the bartender's favourites
     gripe: str = ""  # in a staff chat: the coworker this bartender is annoyed with (or who is annoyed with them, with grumble False)
     grumble: bool = True  # in a staff chat with a gripe: this bartender is the one complaining
+    occasion: str = ""  # what's special tonight: a holiday, a band, a release, a power outage (empty on an ordinary night)
+    birthday: str = ""  # "you" if it's this person's birthday, else the name of the birthday guest in the room
+    farewell: str = ""  # "you" if this person is about to move away, else the name of the friend who is
+    back_in_town: bool = False  # this person moved away and is back for a visit
+    incident: str = ""  # an incident going on right now: power_out | fire_alarm
 
 
 @dataclass
