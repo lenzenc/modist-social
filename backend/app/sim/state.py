@@ -151,6 +151,7 @@ class ThreadState:
     joke: dict | None = None  # the last joke: {"teller": id, "by": {listener id: landed | flat | stung}}
     steer: dict[str, str] = field(default_factory=dict)  # who means to change the subject this turn, and to what
     split_from: int | None = None  # the bigger chat this one broke away from
+    waited: float = 0.0  # minutes the guest waited in line before this order
 
 
 @dataclass

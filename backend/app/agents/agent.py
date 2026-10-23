@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from app.agents.prompts import persona_prompt
 from app.config import settings
 from app.llm.types import TurnRequest, Utterance
-from app.sim import beats, bonds, drunk, dynamics, environment, gossip, human, life, taste
+from app.sim import beats, bonds, drunk, dynamics, environment, gossip, human, life, staff, taste
 from app.sim import god as godmode
 from app.sim import sales
 from app.sim.social import RECALL_MAX, RECALL_QUICK, rel_time, relation_label
@@ -61,7 +61,10 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
 
     guests_in = sum(1 for x in d.people.values() if x.present and not x.is_bartender)
     out.append(environment.room_line(now, guests_in, d.song(now)))
+    shift = d.staff.get(p.id) if p.is_bartender else None
     if not p.is_bartender and (feel := human.right_now(p, now)):
+        out.append(feel)
+    elif shift is not None and (feel := staff.state_hint(shift, p.mood)):
         out.append(feel)
     mine = d.life.get(p.id, []) if not p.is_bartender else []
     if mind := life.on_mind(mine, now):
@@ -144,6 +147,8 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
     hints: list[str] = []
     mode = "normal"
     serve, water = "", False  # how the bartender is treating the guest in an order, and whether the guest is switching to water
+    peeve = favorite = False  # for the mock: the guest at the bar trips the bartender's peeve / is a favourite
+    gripe, grumble = "", True  # for the mock: the coworker a bartender is talking to about a gripe, and who is complaining
     want, ask_rec, suggest = "", False, ""  # for the mock: the drink this guest means to order, whether they ask for a suggestion, what the bartender suggests
     last_speaker = next((s for k, s, _ in reversed(t.lines) if k == "speech"), None)
     if t.kind == "order":
@@ -156,6 +161,15 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
                 hints.append(f"A guest {what}. Greet them (by name if you know them), recommend or pour something from the board that suits them.")
             if guest:
                 hints.append(_register_note(now, guest, d.visits.get(guest.id)))
+                rel_g = d.social.rel(p.id, guest.id)
+                favorite = staff.favorite(rel_g)
+                if note := staff.opinion(rel_g, guest.short):
+                    hints.append(note)
+                key = str(p.persona.get("peeve", ""))
+                stayed = (now - guest.arrived_at).total_seconds() / 60 if guest.arrived_at else 0.0
+                peeve = staff.peeve_hit(key, guest, t.waited, stayed, t.intent.kind if t.intent else "")
+                if peeve:
+                    hints.append(staff.peeve_hint(key))
                 serve = drunk.service(guest)
                 hints.append(drunk.bartender_note(guest, serve))
                 recent = d.taste_of(guest).history[-1:] if (d.visits.get(guest.id) or {}).get("n", 0) >= 3 else []
@@ -181,7 +195,20 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
             water = serve != "cut" and drunk.wants_water(p, rng)
             hints.append(drunk.guest_note(p, serve, water))
     elif t.kind == "staff":
-        hints.append("You and your coworker are between orders. Talk shop or share something about the customers or your life.")
+        mate = next((o for o in others if o.is_bartender), None)
+        if shift is not None and shift.gripe and mate is not None:
+            gripe = mate.short
+            hints.append(staff.GRIPE_HINT.format(name=mate.short))
+            mate_shift = d.staff.get(mate.id)
+            if mate_shift is not None:
+                mate_shift.owed = p.short
+            shift.gripe = ""
+        elif shift is not None and shift.owed and mate is not None:
+            gripe, grumble = mate.short, False
+            hints.append(staff.GRIPE_ANSWER_HINT.format(name=shift.owed))
+            shift.owed, shift.made_up = "", True
+        else:
+            hints.append("You and your coworker are between orders. Talk shop or share something about the customers or your life.")
     elif not t.lines:
         strangers = [o for o in others if d.social.rel(p.id, o.id).familiarity == 0]
         if greeted:
@@ -308,6 +335,8 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
         excuse=t.excuse.get(p.id, ""),
         avoid=avoid, lull=lull, cut=cut,
         joke=joke, laughed=laughed, interrupted=interrupted, interrupting=interrupting, steer=steer, outsider=outsider, vibe=vibe,
+        tired=staff.tired_word(shift) if shift is not None and shift.fatigue >= staff.TIRED else "",
+        rough=bool(shift and shift.rough), peeve=peeve, favorite=favorite, gripe=gripe, grumble=grumble,
         life=(life.freshest(mine, now, 1)[0].text if life.freshest(mine, now, 1) else ""),
         rumor=_rumor_for_mock(rumors, names, around, [o.short for o in others if not o.is_bartender], rng)
         if t.kind == "chat" and not p.is_bartender else None,

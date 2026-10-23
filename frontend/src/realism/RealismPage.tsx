@@ -181,6 +181,21 @@ export default function RealismPage() {
 
           <div className="rounded-lg border border-[var(--border)] p-4">
             <div className="mb-2 flex items-baseline justify-between text-sm">
+              <span className="font-semibold">Behind the bar</span>
+              <span style={{ color: BAND_COLOR[summary.staff.band] }} className="font-bold">
+                {summary.staff.rate === null ? "not enough shifts yet" : `${summary.staff.rate}% of shifts had something in them`}
+              </span>
+            </div>
+            <div className="text-xs text-[var(--muted)]">
+              Shifts with a mistake, a rough night, friction with the coworker, a pet peeve tripped or a worn-out finish ({summary.staff.shifts}{" "}
+              shifts, {summary.staff.wrong_pours} wrong pours, {summary.staff.spills} spills, {summary.staff.rough} rough nights,{" "}
+              {summary.staff.gripes} gripes, {summary.staff.peeves} peeves). If every shift is the same, the people behind the bar are
+              furniture. Not part of the overall score.
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[var(--border)] p-4">
+            <div className="mb-2 flex items-baseline justify-between text-sm">
               <span className="font-semibold">Habits</span>
               <span style={{ color: BAND_COLOR[summary.taste.band] }} className="font-bold">
                 {summary.taste.repeat === null ? "not enough orders yet" : `${Math.round(summary.taste.repeat * 100)}% same as last time`}

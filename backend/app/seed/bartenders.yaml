@@ -18,6 +18,8 @@
   avoid: []
   tics: ["says people's names a lot", "says 'okay, okay'"]
   reasons: {work: 1}
+  peeve: impatient
+  rough: ["a landlord call about the lease on a space she wanted", "her cat is at the vet"]
 - id: b2
   name: Rico Alvarez
   pronouns: he/him
@@ -38,6 +40,8 @@
   avoid: ["his ex-bandmate"]
   tics: ["says 'no notes'", "drops song lyrics into conversation"]
   reasons: {work: 1}
+  peeve: camper
+  rough: ["the festival setlist keeps falling apart", "his band argued all through rehearsal"]
 - id: b3
   name: June Whitaker
   pronouns: she/her
@@ -58,6 +62,8 @@
   avoid: ["her ex-husband"]
   tics: ["says 'mm-hm'", "says 'Well, anyway'"]
   reasons: {work: 1}
+  peeve: drunk
+  rough: ["another tuition bill came in", "her eldest is sulking about college applications"]
 - id: b4
   name: Cody Bright
   pronouns: he/him
@@ -78,6 +84,8 @@
   avoid: ["failing the exam"]
   tics: ["says 'fun fact'", "blurts a hop variety"]
   reasons: {work: 1}
+  peeve: bad_tipper
+  rough: ["he blanked on a hop variety at study group", "he barely slept before the exam"]
 - id: b5
   name: Sam Okonkwo
   pronouns: he/him
@@ -98,3 +106,5 @@
   avoid: ["politics at the bar"]
   tics: ["says 'what do you mean by that?'", "says 'right on'"]
   reasons: {work: 1}
+  peeve: impatient
+  rough: ["the toddler was up all night", "daycare called with a fever"]

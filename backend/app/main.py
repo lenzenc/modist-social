@@ -17,7 +17,7 @@ from app.realism_api import router as realism_router
 from app.sales_api import router as sales_router
 from app.seed.loader import seed_if_empty
 from app.sim import god as godmode
-from app.sim import drunk, life, taste
+from app.sim import drunk, life, staff, taste
 from app.sim.director import Director
 from app.sim.state import CHANNEL_DESC, CHANNELS
 
@@ -172,6 +172,12 @@ async def person(pid: str):
         "on_water": p.on_water_until is not None and director.clock.now() < p.on_water_until, "slops": p.slops,
         "cap": p.cap, "spent": p.spent,
     } if p.present and not p.is_bartender else None
+    sh = director.staff.get(pid) if p.is_bartender and p.present else None
+    shift_view = {
+        "mood": round(p.mood, 2), "energy": staff.tired_word(sh), "rough": sh.rough, "served": sh.served,
+        "wrong": sh.wrong, "spills": sh.spills, "peeve": staff.PEEVES.get(str(p.persona.get("peeve", "")), ""),
+        "gripe": director.people[sh.gripe].short if sh.gripe in director.people else "",
+    } if sh else None
     rec = director.taste_of(p) if not p.is_bartender else None
     day = director.clock.now().strftime("%Y-%m-%d")
     taste_view = {
@@ -185,7 +191,7 @@ async def person(pid: str):
         "with": director.people[c.b_id if c.a_id == pid else c.a_id].short, "from": c.from_bond, "to": c.to_bond,
         "why": c.why, "sim_ts": c.sim_ts.isoformat(),
     } for c in changes]
-    return {**_person(p), "persona": p.persona, "relationships": rels[:30], "bond_changes": bond_changes, "memories": mems, "state": state,
+    return {**_person(p), "persona": p.persona, "relationships": rels[:30], "bond_changes": bond_changes, "memories": mems, "state": state, "shift": shift_view,
             "lately": director.lives.get(pid, ""), "visits": director.visits.get(pid, {}).get("n", 0), "taste": taste_view,
             "life": [{"text": e.text, "cat": e.cat, "started_at": e.started_at.isoformat(), "ends_at": e.ends_at.isoformat(),
                       "active": life.freshness(e, director.clock.now()) > 0}

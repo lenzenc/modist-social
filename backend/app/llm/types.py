@@ -47,6 +47,12 @@ class TurnRequest:
     steer: str = ""  # change the subject on purpose to this
     outsider: bool = False  # on the outside of this chat
     vibe: str = ""  # the table's mood: lively | easy | flat | tense
+    tired: str = ""  # a bartender's fatigue: tired | worn out (empty when fresh)
+    rough: bool = False  # a bartender having a rough night
+    peeve: bool = False  # the guest in this order trips the bartender's pet peeve
+    favorite: bool = False  # the guest in this order is one of the bartender's favourites
+    gripe: str = ""  # in a staff chat: the coworker this bartender is annoyed with (or who is annoyed with them, with grumble False)
+    grumble: bool = True  # in a staff chat with a gripe: this bartender is the one complaining
 
 
 @dataclass

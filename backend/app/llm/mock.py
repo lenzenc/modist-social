@@ -58,6 +58,12 @@ _WASTED = [
     "Sho my ex, right, and I shhhould not be telling you thish...",
 ]
 _CUT = ["I think you've had enough for tonight, friend. Let me get you a water.", "That's your last one, I'm afraid. Water's on me, and let's get you a ride."]
+_TIRED_BT = ["Mm. What can I get you? Long shift.", "Yep, coming right up. My feet are done."]
+_ROUGH_BT = ["Sorry, bit of a rough night. What'll it be?", "Hey. Not my best day, but I've got you."]
+_FAVORITE_BT = ["There they are! The usual, or are we feeling brave tonight?", "Oh good, you're here. I saved you a good one."]
+_PEEVE_BT = ["Mm-hm. Go on, I'm listening.", "Sure. Whenever you're ready."]
+_GRIPE_BT = ["Could you grab an order or two, {name}? I was swamped out there.", "{name}, the line was out the door and you were gabbing."]
+_GRIPE_ANSWER_BT = ["Fair, fair. I got caught up. I'll watch the line.", "Ha, okay, point taken. My bad."]
 _SLOW = ["Sure thing. Maybe a water to go with it?", "Coming up. Want a glass of water alongside?"]
 _WATER_ASK = ["Actually, just a water for me, I think.", "Water, please. I should slow down."]
 _EXCUSE = ["Be right back, I'll be a few minutes.", "Sorry, I need a breather. Back in a bit.", "Excuse me a sec, nature calls."]
@@ -198,6 +204,17 @@ class MockLLM:
                 say = r.choice(_OUTSIDER)
             if req.interrupted and say:
                 say = dynamics.trail_off(say)
+        if req.is_bartender and req.kind == "order" and req.serve not in ("cut", "slow") and not req.suggest:
+            if req.peeve:
+                say = r.choice(_PEEVE_BT)
+            elif req.favorite:
+                say = r.choice(_FAVORITE_BT)
+            elif req.rough:
+                say = r.choice(_ROUGH_BT)
+            elif req.tired:
+                say = r.choice(_TIRED_BT)
+        if req.kind == "staff" and req.gripe:
+            say = r.choice(_GRIPE_BT if req.grumble else _GRIPE_ANSWER_BT).format(name=req.gripe)
         beat = r.choice(_BEATS) if req.kind == "chat" and req.last_line and r.random() < 0.1 else ""
         if req.lull and req.kind == "chat" and not req.is_bartender and r.random() < 0.4:
             say, beat = "", r.choice(_BEATS)  # a gesture says it

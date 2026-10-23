@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from app.db.models import BondChange, LifeEvent, Memory, Message, Person, SaleItem, Session, Thread, get_state
-from app.sim import beats, bonds, drunk, dynamics, gossip, life, realism, taste
+from app.sim import beats, bonds, drunk, dynamics, gossip, life, realism, staff, taste
 from app.sim.state import display_name
 
 router = APIRouter(prefix="/api/realism")
@@ -57,6 +57,7 @@ async def summary(period: str = "day", date: str = ""):
         gossip_log = [e for e in (await get_state(s, "gossip_log", []) or []) if start.isoformat() <= e["day"] < end.isoformat()]
         taste_log = [e for e in (await get_state(s, "taste_log", []) or []) if start.isoformat() <= e["day"] < end.isoformat()]
         group_log = [e for e in (await get_state(s, "group_log", []) or []) if start.isoformat() <= e["day"] < end.isoformat()]
+        staff_log = [e for e in (await get_state(s, "staff_log", []) or []) if start.isoformat() <= e["day"] < end.isoformat()]
         sold = (await s.execute(select(SaleItem.person_id, SaleItem.drink).where(
             SaleItem.sim_ts >= datetime.combine(start, time.min), SaleItem.sim_ts < datetime.combine(end, time.min),
             SaleItem.buyer_id.is_(None)).order_by(SaleItem.id))).all()
@@ -108,6 +109,7 @@ async def summary(period: str = "day", date: str = ""):
         "range": {"start": start.isoformat(), "end": (end - timedelta(days=1)).isoformat(), "period": period},
         **result, "series": series, "life": life.continuity(in_range, events, names),
         "drunk": drunk.consequences(drunk_log),
+        "staff": staff.report(staff_log),
         "taste": taste.habits(taste_log, [(pid, drink) for pid, drink in sold]),
         "groups": dynamics.report(group_log, [l for d in days for l in by_day.get(d, [])], threads, patron_days),
         "quiet": beats.quiet_share(len(acted), len(in_range), sum(1 for a in acted if a is None)),

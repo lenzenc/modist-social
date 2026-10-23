@@ -15,7 +15,7 @@ from app.config import settings
 from app.db.models import LifeEvent, Message, NewsItem, Payment, Person, SaleItem, Session, SimState, Thread, get_state, set_state
 from app.llm.usage import usage
 from app.seed.loader import color_for
-from app.sim import beats, bonds, drunk, dynamics, environment, human, life, newcomers, realism, taste
+from app.sim import beats, bonds, drunk, dynamics, environment, human, life, newcomers, realism, staff, taste
 from app.sim import god as godmode
 from app.sim import groups, menu, sales, seating
 from app.sim.clock import DEFAULT_START, SimClock, is_open, launch_time, open_close
@@ -84,6 +84,8 @@ class Director:
         self.gossip_cred: dict[str, int] = {}  # pid -> how far others can trust what they pass on: see sim.gossip
         self.gossip_log: list[dict] = []  # rumors that reached their subject or got corrected, for the scorecard
         self.group_log: list[dict] = []  # splits, interruptions, jokes, steers and outsiders, for the scorecard
+        self.staff: dict[str, staff.Shift] = {}  # bartender id -> how their shift is going: see sim.staff
+        self.staff_log: list[dict] = []  # one row per finished shift, for the scorecard
         self.beat_pool: dict[str, list[str]] = {}  # pid -> model-written idle beats not yet used
         self.beat_calls: list[datetime] = []  # when the batched beats call last ran
         self.beat_busy = False
@@ -133,6 +135,7 @@ class Director:
             self.gossip_cred = await get_state(s, "gossip_cred", {}) or {}
             self.gossip_log = await get_state(s, "gossip_log", []) or []
             self.group_log = await get_state(s, "group_log", []) or []
+            self.staff_log = await get_state(s, "staff_log", []) or []
         for p in self.people.values():
             self.persona_text[p.id] = persona_prompt(p, self.lives.get(p.id, ""))
         await self.social.load()
@@ -670,6 +673,13 @@ class Director:
         """Pick the tip and close the card transaction."""
         pct = sales.pick_tip(p.persona.get("tipper", "standard") if p else "standard", self.rng)
         pay.tip_pct, pay.tip = pct, sales.tip_cents(pay.subtotal, pct)
+        if sh := self.staff.get(pay.bartender_id or ""):
+            if pct >= 20:
+                sh.tips_good += 1
+                human.nudge_mood(self.people[pay.bartender_id], 0.04)
+            elif pct == 0:
+                sh.tips_none += 1
+                human.nudge_mood(self.people[pay.bartender_id], -0.04)
         pay.total, pay.status = pay.subtotal + pay.tip, "closed"
         pay.closed_at = min(now, sales.day_end(pay.opened_at))
 
@@ -691,6 +701,7 @@ class Director:
             if drink != menu.WATER and drunk.service(guest) == "cut":
                 await self.cut_off(guest, bt, t)
                 drink = menu.WATER
+            await self.bartender_moment(guest, drink, bt, t)
             await self.charge(guest, drink, bt, t)
             if t.treat:
                 await self.round_for(guest, t, bt)
@@ -953,7 +964,7 @@ class Director:
             return 0.0
         fam = max(self.social.rel(guest.id, b.id).familiarity for b in bts)
         busy = sum(1 for p in self.patrons() if p.present and p.location == "bar") > 8
-        return max(0.0, min(0.9, 0.35 + 0.3 * guest.talk + fam / 200 - (0.2 if busy else 0)))
+        return max(0.0, min(0.9, (0.35 + 0.3 * guest.talk + fam / 200 - (0.2 if busy else 0)) * max(self.verve(b) for b in bts)))
 
     async def maybe_linger(self, t: ThreadState) -> None:
         """A seated guest who has ordered may stay and talk across the bar; same thread, so it stays one card."""
@@ -970,7 +981,7 @@ class Director:
         has_bt = any(self.people[m].is_bartender for m in t.members)
         others = [b for b in self.free_bartenders() if b.id not in t.members]
         quiet = sum(1 for p in self.patrons() if p.present and p.location == "bar") <= 3
-        if others and self.rng.random() < (0.14 if quiet else 0.07) * (1 if has_bt else 0.5):
+        if others and self.rng.random() < (0.14 if quiet else 0.07) * (1 if has_bt else 0.5) * self.verve(others[0]):
             await self.join_thread(t, self.rng.choice(others))
 
     def stool_neighbors(self, p: PersonState, others: list[str]) -> bool:
@@ -1073,7 +1084,15 @@ class Director:
             await self.beat(p, f"{p.short} {utt.beat}.", t)
         if utt.say:
             await self.post(t.channel, utt.say, p.id, "speech", t, thought=utt.thought)
-        if not p.is_bartender:
+        if p.is_bartender:
+            human.blend_mood(p, utt.mood)
+            sh = self.staff.get(p.id)
+            if t.kind == "staff" and sh is not None and sh.made_up:
+                sh.made_up = False
+                other = next((m for m in t.members if m != p.id), None)
+                if other:
+                    await self.social.apply_delta(p.id, other, 0, 1, "")
+        else:
             if utt.say:
                 human.spoke(p)
             human.blend_mood(p, utt.mood)
@@ -1468,6 +1487,21 @@ class Director:
 
     async def bartender_on(self, b: PersonState) -> None:
         b.present, b.location = True, "bar"
+        shift = staff.start_shift(b.persona, self.rng, self.clock.now())
+        self.staff[b.id] = shift
+        b.mood = staff.opening_mood(b.persona, self.rng, shift)
+        staff.note_mood(shift, b.mood)
+
+    async def end_shift(self, b: PersonState) -> None:
+        """The shift is over: what kind of night it was is remembered and goes on the scorecard."""
+        s = self.staff.pop(b.id, None)
+        if s is None:
+            return
+        now = self.clock.now()
+        text, importance, row = staff.end_of_shift(s, b.id, now.strftime("%Y-%m-%d"))
+        await self.social.add_memory(b.id, now, text, [], importance)
+        self.staff_log.append(row)
+        del self.staff_log[:-staff.LOG_KEEP]
 
     def bartender_off(self, b: PersonState) -> None:
         for t in self.threads.values():
@@ -1536,6 +1570,7 @@ class Director:
         for p in self.patrons():
             if p.present:
                 human.tick(p, dt_min, drunk.decay_mult(p, now))
+        await self.staff_step(dt_min)
         await self.sloppy_step(dt_min)
         for p in self.patrons():
             if not p.present or p.leave_at is None:
@@ -1554,6 +1589,77 @@ class Director:
             prev_s = self._last_social_sim or now
             self._last_social_sim = now
             await self.social_step(now, max((now - prev_s).total_seconds() / 60, 0.0))
+
+    async def staff_step(self, dt_min: float) -> None:
+        """Time on the bar: tiredness builds, a long line wears on the mood, and now and then something gets spilled."""
+        guests = sum(1 for p in self.patrons() if p.present)
+        for bid, sh in list(self.staff.items()):
+            b = self.people[bid]
+            if not b.present:
+                continue
+            staff.tire(sh, b.persona, dt_min, guests, len(self.queue))
+            b.mood += ((-0.2 if sh.rough else 0.0) - b.mood) * min(1.0, dt_min / 180)
+            if dm := staff.line_mood(len(self.queue), dt_min):
+                human.nudge_mood(b, dm)
+            staff.note_mood(sh, b.mood)
+            if guests > 2 and self.rng.random() < staff.mistake_chance(sh, b.persona, guests) * 3 * min(1.0, dt_min / 60):
+                sh.spills += 1
+                human.nudge_mood(b, -0.08)
+                await self.post("bar", staff.mistake_text(self.rng, "spill", b), kind="system")
+
+    def verve(self, b: PersonState) -> float:
+        """How readily a bartender chats: lower when tired or in a bad mood."""
+        sh = self.staff.get(b.id)
+        return staff.mood_scale(sh, b.mood) if sh else 1.0
+
+    async def staff_friction(self, now: datetime, dt_min: float) -> None:
+        """One bartender working a line while the other chats: it can turn into a grievance."""
+        pair = [self.people[b] for b in (self.shift or ()) if self.people[b].present and b in self.staff]
+        if len(pair) != 2 or not self.queue:
+            return
+        for worker, idle in (pair, pair[::-1]):
+            wt, it = self.bartender_thread(worker), self.bartender_thread(idle)
+            sh = self.staff[worker.id]
+            if not (wt and wt.kind == "order" and it and it.kind == "chat") or sh.gripe:
+                continue
+            aff = self.social.rel(worker.id, idle.id).affinity
+            if self.rng.random() < staff.friction_chance(sh, aff, len(self.queue)) * min(1.0, dt_min / 5):
+                sh.gripe, sh.grudge, sh.gripes = idle.id, idle.short, sh.gripes + 1
+                await self.beat(worker, staff.look(self.rng, worker.short, idle.short))
+                await self.social.apply_delta(worker.id, idle.id, 0, -1, "")
+                return
+
+    async def bartender_moment(self, guest: PersonState, drink: str, bt_id: str | None, t: ThreadState) -> None:
+        """Pouring a drink: a bartender may slip, and a favourite or a pet peeve at the bar shifts their mood."""
+        sh = self.staff.get(bt_id or "")
+        if sh is None:
+            return
+        b, now = self.people[bt_id], self.clock.now()
+        sh.served += 1
+        guests = sum(1 for p in self.patrons() if p.present)
+        if self.rng.random() < staff.mistake_chance(sh, b.persona, guests):
+            if staff.roll_mistake(self.rng) == "wrong_pour" and drink != menu.WATER:
+                wrong = self.rng.choice([n for n in menu.names() if n != drink])
+                sh.wrong += 1
+                human.nudge_mood(guest, -0.05)
+                await self.post(t.channel, staff.mistake_text(self.rng, "wrong_pour", b, wrong, drink), kind="system", thread=t)
+                await self.social.add_memory(guest.id, now, f"{b.short} poured the wrong beer and had to redo it.", [b.id], 2)
+            else:
+                sh.spills += 1
+                await self.post(t.channel, staff.mistake_text(self.rng, "spill", b), kind="system", thread=t)
+            human.nudge_mood(b, -0.1)
+            mate = next((self.people[m] for m in (self.shift or ()) if m != b.id and m in self.people), None)
+            if mate is not None and mate.present:
+                await self.social.apply_delta(mate.id, b.id, 0, 1, "")  # a coworker covers
+        rel = self.social.rel(b.id, guest.id)
+        if staff.favorite(rel):
+            human.nudge_mood(b, 0.05)
+        stayed = (now - guest.arrived_at).total_seconds() / 60 if guest.arrived_at else 0.0
+        if staff.peeve_hit(str(b.persona.get("peeve", "")), guest, t.waited, stayed, t.intent.kind if t.intent else ""):
+            sh.peeves += 1
+            human.nudge_mood(b, -0.1)
+            if self.rng.random() < 0.3:
+                await self.social.apply_delta(b.id, guest.id, 0, -1, "")
 
     async def sloppy_step(self, dt_min: float) -> None:
         """The drunk make a mess now and then: a dropped glass, a spill, a secret that slips out."""
@@ -1603,6 +1709,7 @@ class Director:
         old, self.shift = set(self.shift or ()), pair
         new = set(pair or ())
         for bid in old - new:
+            await self.end_shift(self.people[bid])
             self.bartender_off(self.people[bid])
         for bid in new - old:
             await self.bartender_on(self.people[bid])
@@ -1852,6 +1959,7 @@ class Director:
         t = await self.open_thread("bar" if p.seated else "ordering", "order", [p.id, b.id], max_turns=2 if w.again else 3,
                                    seated=p.seated, again=w.again, ask=w.again and p.seated)
         t.party, t.treat = w.party, w.treat
+        t.waited = (self.clock.now() - w.since).total_seconds() / 60
         self.plan_order(t, p, b)
 
     def plan_order(self, t: ThreadState, p: PersonState, b: PersonState) -> None:
@@ -1966,6 +2074,7 @@ class Director:
         taken: set[str] = set()
         game = environment.game_on(now)
         await self.serve_queue(now)
+        await self.staff_friction(now, dt_min)
         for loc in LOCATIONS:
             free = [p for p in self.patrons() if p.present and p.location == loc and p.thread_id is None and not p.waiting
                     and p.free_since is not None and (now - p.free_since).total_seconds() >= 90]
@@ -2027,7 +2136,7 @@ class Director:
                 if loc == "bar" and bartenders:
                     b = self.pick_bartender(p)
                     # Seated regulars chat with the bartenders much more than people standing by.
-                    rate = 0.12 + 0.1 * self.social.rel(p.id, b.id).familiarity / 100 if p.seated else 0.05
+                    rate = (0.12 + 0.1 * self.social.rel(p.id, b.id).familiarity / 100 if p.seated else 0.05) * self.verve(b)
                     if self.rng.random() < _prob(rate, k):
                         taken.add(p.id)
                         members = [p.id, b.id]
@@ -2059,7 +2168,7 @@ class Director:
         pair = [self.people[b] for b in (self.shift or ()) if self.people[b].present]
         staff_open = any(t.channel == "staff" for t in self.threads.values())
         quiet = sum(1 for p in self.patrons() if p.present and p.location == "bar") <= 2
-        if len(pair) == 2 and not staff_open and quiet and not self.queue and all(self.bartender_thread(b) is None for b in pair) and self.rng.random() < _prob(0.04, k):
+        if len(pair) == 2 and not staff_open and quiet and not self.queue and all(self.bartender_thread(b) is None for b in pair) and self.rng.random() < _prob(0.25 if any(self.staff.get(b.id) and self.staff[b.id].gripe for b in pair) else 0.04, k):
             await self.open_thread("staff", "staff", [b.id for b in pair], self.rng.randint(4, 7))
 
     # ---------------------------------------------------------------- loop & control
@@ -2106,6 +2215,7 @@ class Director:
             await set_state(s, "gossip_cred", self.gossip_cred)
             await set_state(s, "gossip_log", self.gossip_log)
             await set_state(s, "group_log", self.group_log)
+            await set_state(s, "staff_log", self.staff_log)
             await set_state(s, "clock", {
                 "sim_now": self.clock.now().isoformat(), "speed": self.clock.speed,
                 "crowd": self.crowd, "crowd_days": self.crowd_days,

@@ -36,7 +36,7 @@ The simulation already has moods, buzz, memory, relationships and gossip. The re
    - Shared emotional mood across a table.
    - People who deliberately steer a chat to a new topic.
 
-9. **Bartender inner lives.** Bartenders mostly respond to guests. Give them moods, fatigue over a shift, mistakes (wrong order, a spill), a rough night, opinions about regulars, a favorite and a pet peeve, and a bit of friction with each other. They are the constant presence in the room, so they have a large effect on how real it feels.
+9. **Bartender inner lives (done).** Bartenders mostly respond to guests. Give them moods, fatigue over a shift, mistakes (wrong order, a spill), a rough night, opinions about regulars, a favorite and a pet peeve, and a bit of friction with each other. They are the constant presence in the room, so they have a large effect on how real it feels.
 
 10. **Calendar events and traditions.** Weather, the game and trivia are already there. Add holidays, birthdays (someone gets bought a round), a regular's last night before moving away, a new beer release, a private party or live music, a slow Tuesday versus a loud Saturday. These give the room a rhythm and give patrons shared things to talk about and remember. Have the room's history accumulate: "the night the power went out."
 
