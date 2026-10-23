@@ -38,3 +38,7 @@ Python always runs through `uv` (`uv run`, `uv add`).
 ## Layout
 
 Backend: FastAPI + SQLAlchemy (async) + Postgres. `app/sim` (director, clock, schedule, seating), `app/agents` (prompts, turns, memory), `app/llm` (live and mock clients, usage). Frontend: React + Vite + Tailwind + Zustand, using `/api` and `/ws`.
+
+## Git
+
+Commit directly to `master`. Don't create a branch (or open a PR) unless I say so.
