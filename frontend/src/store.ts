@@ -239,7 +239,8 @@ export const useStore = create<State>((set, get) => ({
               const feed = s.feeds[m.channel] ?? { threads: [], messages: [] };
               next.feeds = { ...s.feeds, [m.channel]: { ...feed, messages: mergeMsgs(feed.messages, [m]).slice(-200) } };
             }
-            if (m.channel !== s.channel) next.unread = { ...s.unread, [m.channel]: (s.unread[m.channel] ?? 0) + 1 };
+            // Only people talking count as unread; system notices (shift starts, arrivals) don't.
+            if (m.channel !== s.channel && m.thread_id != null && m.kind !== "system") next.unread = { ...s.unread, [m.channel]: (s.unread[m.channel] ?? 0) + 1 };
             return next;
           });
           break;
