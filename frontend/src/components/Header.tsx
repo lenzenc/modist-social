@@ -29,6 +29,14 @@ export function Header() {
             Sales ↗
           </a>
           <a
+            href="/realism"
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-md border border-[var(--border)] px-3 py-1 text-sm font-semibold hover:bg-black/[0.05]"
+          >
+            Realism ↗
+          </a>
+          <a
             href="/taproom"
             target="_blank"
             rel="noreferrer"

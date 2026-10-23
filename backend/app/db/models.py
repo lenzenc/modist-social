@@ -120,6 +120,24 @@ class NewsItem(Base):
     text: Mapped[str] = mapped_column(Text)
 
 
+class LifeEvent(Base):
+    """Something that happened to a patron away from the taproom (see sim/life.py)."""
+
+    __tablename__ = "life_event"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    person_id: Mapped[str] = mapped_column(ForeignKey("person.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(48))
+    cat: Mapped[str] = mapped_column(String(16), default="")
+    text: Mapped[str] = mapped_column(Text)
+    keys: Mapped[list] = mapped_column(JSON, default=list)
+    started_at: Mapped[datetime] = mapped_column(DateTime)
+    ends_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    next_kind: Mapped[str] = mapped_column(String(48), default="")  # the follow-on this event leads to
+    due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class SimState(Base):
     __tablename__ = "sim_state"
 
@@ -133,6 +151,7 @@ _COLUMNS = (
     "ALTER TABLE memory ADD COLUMN IF NOT EXISTS kind VARCHAR(16) NOT NULL DEFAULT 'event'",
     "ALTER TABLE relationship ADD COLUMN IF NOT EXISTS met_at TIMESTAMP NULL",
     "ALTER TABLE message ADD COLUMN IF NOT EXISTS thought TEXT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_message_sim_ts ON message (sim_ts)",
     "UPDATE thread SET channel = 'inside-tables' WHERE channel = 'high-tops'",
     "UPDATE message SET channel = 'inside-tables' WHERE channel = 'high-tops'",
 )

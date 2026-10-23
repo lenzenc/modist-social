@@ -1,0 +1,55 @@
+# Things that happen to patrons away from the taproom (see app/sim/life.py).
+#
+# kind    slug, unique; cat = work | family | health | money | good | interest
+# weight  how likely it is to be rolled (0 = only ever follows another event via `then`)
+# text    third person, no pronouns. Slots: {day} ("on Tuesday"), {since} ("Tuesday"), {job}, {interest}
+# keys    words that show up when the person talks about it (used by the realism scorecard)
+# days    how many sim days it stays on their mind; the effects fade to nothing by then
+# mood    shift to the mood they arrive with (-1..1, ordinary mood spread is about 0.4)
+# visit   multiplier on how often they come in; stay multiplier on how long; drinks adds to their drink goal
+# reason  overrides why they came (see human.REASON_TEXT); pay forces card
+# when    age_min / age_max
+# then    arc follow-ons: [{kind, weight, after: [min_days, max_days]}], rolled once when the event is due
+
+# ---------------------------------------------------------------- work
+- {kind: slammed_at_work, cat: work, weight: 10, text: "buried at work since {since}, with a deadline nobody warned about", keys: [deadline, slammed, swamped, buried, behind at work], days: 3, mood: -0.25, visit: 0.9, stay: 0.8, drinks: 0, reason: unwind}
+- {kind: boss_clash, cat: work, weight: 8, text: "had a run-in with the boss {day} and is still stewing", keys: [run-in, manager, stewing, "my boss", "my manager"], days: 3, mood: -0.35, visit: 1.2, stay: 1.1, drinks: 1, reason: unwind}
+- {kind: job_interview, cat: work, weight: 5, text: "has a job interview coming up, and is trying not to think about it", keys: [interview, resume, hiring, nervous], days: 4, mood: -0.1, visit: 0.9, stay: 0.9, drinks: 0, then: [{kind: got_the_job, weight: 6, after: [2, 4]}, {kind: didnt_get_the_job, weight: 4, after: [2, 4]}]}
+- {kind: got_the_job, cat: good, weight: 0, text: "got the job after the interview and has been floating since", keys: [offer, hired, new job, got the job], days: 5, mood: 0.5, visit: 1.5, stay: 1.2, drinks: 1, reason: catch_up}
+- {kind: didnt_get_the_job, cat: work, weight: 0, text: "heard back that the job went to someone else", keys: [rejection, rejected, interview, didn't get], days: 4, mood: -0.5, visit: 1.1, stay: 1.2, drinks: 1, reason: unwind}
+- {kind: laid_off_scare, cat: work, weight: 4, text: "heard rumors of layoffs at work and has been checking email every hour", keys: [layoffs, layoff, laid off], days: 5, mood: -0.4, visit: 1.1, stay: 1.1, drinks: 1, reason: unwind, then: [{kind: layoffs_fizzled, weight: 6, after: [3, 6]}, {kind: lost_the_job, weight: 2, after: [3, 6]}]}
+- {kind: layoffs_fizzled, cat: good, weight: 0, text: "found out the layoffs rumor was nothing and finally exhaled", keys: [layoffs, relieved], days: 3, mood: 0.35, visit: 1.2, stay: 1.0, drinks: 0}
+- {kind: lost_the_job, cat: money, weight: 0, text: "was let go from work and is still figuring out what comes next", keys: [laid off, fired, let go, unemployed, lost my job], days: 10, mood: -0.6, visit: 0.8, stay: 1.2, drinks: -1, reason: solo, pay: card}
+- {kind: promotion, cat: good, weight: 4, text: "got a promotion at work {day}", keys: [promotion, promoted, raise], days: 4, mood: 0.5, visit: 1.4, stay: 1.2, drinks: 1, reason: catch_up}
+- {kind: great_week_at_work, cat: work, weight: 6, text: "closed a big thing at work {day} and has been on a high", keys: [client, closed the deal, big win, big account], days: 3, mood: 0.35, visit: 1.2, stay: 1.1, drinks: 0, reason: catch_up}
+
+# ---------------------------------------------------------------- family
+- {kind: family_visiting, cat: family, weight: 6, text: "has family in town all week and needed an hour to themselves", keys: [in-laws, relatives, family in town, my parents are, my sister is, my brother is], days: 4, mood: -0.1, visit: 1.4, stay: 0.8, drinks: 0, reason: solo}
+- {kind: kid_sick, cat: family, weight: 5, text: "spent {since} home with a sick kid and barely slept", keys: [kid, sick kid, fever, daughter, up all night], days: 3, mood: -0.3, visit: 0.6, stay: 0.6, drinks: 0, when: {age_min: 28, age_max: 55}}
+- {kind: parent_unwell, cat: family, weight: 4, text: "has been worrying about a parent's health since a call {day}", keys: [mom, dad, parent, parents, hospital, doctor], days: 6, mood: -0.45, visit: 0.9, stay: 1.2, drinks: 0, reason: solo, when: {age_min: 30}}
+- {kind: argument_with_partner_or_friend, cat: family, weight: 6, text: "had a fight with someone close {day} and hasn't sorted it out", keys: [fight, argument, argued, not talking, apologize, made up], days: 3, mood: -0.4, visit: 1.1, stay: 1.2, drinks: 1, reason: unwind}
+- {kind: anniversary, cat: good, weight: 3, text: "has an anniversary coming up and is overthinking the plans", keys: [anniversary], days: 3, mood: 0.2, visit: 0.9, stay: 0.9, drinks: 0, when: {age_min: 28}}
+- {kind: new_pet, cat: good, weight: 3, text: "brought home a new pet {day} and talks about little else", keys: [puppy, kitten, new pet, new dog, new cat], days: 5, mood: 0.35, visit: 0.9, stay: 0.8, drinks: 0}
+- {kind: moving_soon, cat: family, weight: 4, text: "is in the middle of packing boxes for a move", keys: [packing, boxes, moving out, moving day, lease], days: 6, mood: -0.15, visit: 0.8, stay: 0.8, drinks: 0}
+
+# ---------------------------------------------------------------- health
+- {kind: bad_cold, cat: health, weight: 8, text: "has been fighting a nasty cold since {since}", keys: [sick, cough, flu, congested, my cold, got a cold, this cold, stuffy], days: 3, mood: -0.3, visit: 0.35, stay: 0.6, drinks: -1, reason: solo, then: [{kind: recovered, weight: 1, after: [3, 5]}]}
+- {kind: recovered, cat: good, weight: 0, text: "is finally over the cold and glad to be out of the house", keys: [over the cold, recovered, feeling better, my cold], days: 2, mood: 0.2, visit: 1.4, stay: 1.1, drinks: 0}
+- {kind: hurt_back, cat: health, weight: 4, text: "tweaked a back doing something dumb {day} and is moving like a much older person", keys: [my back, hurt, sore, ibuprofen, back pain, tweaked], days: 4, mood: -0.25, visit: 0.8, stay: 0.8, drinks: -1}
+- {kind: doctors_appointment, cat: health, weight: 4, text: "has a medical appointment coming up and is trying to act like it's nothing", keys: [doctor, appointment, checkup, test results, clinic], days: 4, mood: -0.2, visit: 0.9, stay: 1.0, drinks: 0, then: [{kind: all_clear, weight: 7, after: [3, 5]}, {kind: health_scare, weight: 2, after: [3, 5]}]}
+- {kind: all_clear, cat: good, weight: 0, text: "got the all-clear from the doctor and feels ten pounds lighter", keys: [doctor, all clear, relieved, test results], days: 3, mood: 0.45, visit: 1.4, stay: 1.2, drinks: 1, reason: catch_up}
+- {kind: health_scare, cat: health, weight: 0, text: "got news from the doctor that means more tests and a lot of waiting", keys: [doctor, more tests, results, scared], days: 7, mood: -0.55, visit: 0.9, stay: 1.1, drinks: -1, reason: solo}
+- {kind: new_routine, cat: health, weight: 4, text: "has been trying to cut back on drinking and sleep more", keys: [cutting back, cut back, routine, gym, dry month], days: 7, mood: 0.1, visit: 0.8, stay: 0.8, drinks: -1}
+
+# ---------------------------------------------------------------- money
+- {kind: car_trouble, cat: money, weight: 8, text: "had the car break down {day}, and the repair bill is ugly", keys: [car, repair, mechanic, transmission, towed, broke down], days: 5, mood: -0.4, visit: 0.9, stay: 0.9, drinks: -1, pay: card}
+- {kind: unexpected_bill, cat: money, weight: 6, text: "got hit with a surprise bill {day} and is watching every dollar", keys: [surprise bill, budget, tight on money, watching every, can't afford], days: 6, mood: -0.3, visit: 0.9, stay: 0.9, drinks: -1, pay: card}
+- {kind: windfall, cat: good, weight: 3, text: "came into a little unexpected money {day} and is in a generous mood", keys: [bonus, refund, windfall, unexpected money, extra cash], days: 4, mood: 0.4, visit: 1.4, stay: 1.2, drinks: 1, reason: catch_up}
+- {kind: landlord_trouble, cat: money, weight: 4, text: "is in a fight with a landlord over the rent", keys: [landlord, rent increase, lease], days: 6, mood: -0.4, visit: 1.0, stay: 1.1, drinks: 0}
+
+# ---------------------------------------------------------------- good news and interests
+- {kind: good_news_friend, cat: good, weight: 4, text: "just heard that a close friend is expecting, and can't stop grinning", keys: [baby, expecting, pregnant, congratulations], days: 4, mood: 0.45, visit: 1.4, stay: 1.2, drinks: 1, reason: catch_up}
+- {kind: new_hobby_project, cat: interest, weight: 7, text: "has gone deep on {interest} again this week", keys: [obsessed, deep into, rabbit hole], days: 5, mood: 0.2, visit: 1.0, stay: 1.0, drinks: 0}
+- {kind: tickets, cat: interest, weight: 4, text: "scored tickets to something big and keeps checking the date", keys: [tickets, got tickets, scored tickets], days: 5, mood: 0.35, visit: 1.2, stay: 1.0, drinks: 0, reason: catch_up}
+- {kind: trip_planned, cat: interest, weight: 4, text: "is planning a trip and has opinions about everyone else's suggestions", keys: [trip, vacation, itinerary, booked a, travel], days: 6, mood: 0.25, visit: 1.1, stay: 1.0, drinks: 0}
+- {kind: bad_night_sleep, cat: health, weight: 7, text: "hasn't been sleeping well since {since}", keys: [insomnia, can't sleep, not sleeping, haven't slept, exhausted], days: 3, mood: -0.25, visit: 0.9, stay: 0.7, drinks: 0}

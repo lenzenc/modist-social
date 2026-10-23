@@ -134,8 +134,10 @@ async def reflect_day(d, day: str) -> None:
         mems = sorted(mems, key=lambda m: -m.importance)[:REFLECT_MEMORIES]
         life = p.persona.get("life", "")
         lately = d.lives.get(p.id, "")
+        away = "; ".join(e.text for e in d.life.get(p.id, []) if e.ends_at > d.clock.now())
         rows.append((len(mems), (
-            f"{p.display} | Life so far: {life}" + (f" Lately: {lately}" if lately else "") + "\n"
+            f"{p.display} | Life so far: {life}" + (f" Lately: {lately}" if lately else "")
+            + (f" Off-screen this week: {away}." if away else "") + "\n"
             + "\n".join(f"  - {m.text}" for m in mems)
         )))
     if not rows:

@@ -3,8 +3,9 @@ import re
 from datetime import datetime, timedelta
 
 from app.agents.prompts import persona_prompt
+from app.config import settings
 from app.llm.types import TurnRequest, Utterance
-from app.sim import environment, human
+from app.sim import environment, human, life
 from app.sim import god as godmode
 from app.sim import sales
 from app.sim.social import RECALL_MAX, RECALL_QUICK, rel_time, relation_label
@@ -62,6 +63,9 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
     out.append(environment.room_line(now, guests_in))
     if not p.is_bartender and (feel := human.right_now(p, now)):
         out.append(feel)
+    mine = d.life.get(p.id, []) if not p.is_bartender else []
+    if mind := life.on_mind(mine, now):
+        out.append(mind)
 
     out.append("\nIn this conversation with you:")
     greeted = None
@@ -186,7 +190,13 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
     if last_speaker and last_speaker == p.id:
         hints.append("You spoke last; only add something if it moves things forward.")
     if wind_down:
-        hints.append("The conversation is winding down. Wrap up naturally, perhaps with a parting remark.")
+        if d.realism.tidy_share() > 0.5 and rng.random() < 0.5:
+            hints.append("The conversation is running out of steam. It can just fizzle, or you get distracted; no goodbye needed.")
+        else:
+            hints.append("The conversation is winding down. Wrap up naturally, perhaps with a parting remark.")
+    avoid = d.realism.avoid_for(p.id, first_line=not t.lines) if settings.realism_feedback else []
+    if avoid:
+        hints.append("Don't reuse these worn-out phrases or openers: " + ", ".join(f'"{a}"' for a in avoid) + ".")
     if p.id in t.nudge_leave:
         hints.append("It is time for you to head out. Say goodbye in this turn and set action to leave.")
     out.append("\nYour turn, " + p.short + ". " + " ".join(h for h in hints if h))
@@ -211,6 +221,8 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
         mode=mode if (t.kind == "chat" and not p.is_bartender and t.lines) else "normal",
         mood=p.mood, buzz=p.buzz, battery=p.battery,
         excuse=t.excuse.get(p.id, ""),
+        avoid=avoid,
+        life=(life.freshest(mine, now, 1)[0].text if life.freshest(mine, now, 1) else ""),
     )
 
 

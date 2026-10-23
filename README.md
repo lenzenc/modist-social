@@ -79,6 +79,12 @@ Each turn is rolled as a quick reaction, a normal line, or a short story, depend
 - Each turn recalls up to 20 memories, scored by recency, importance and relevance (who is in the room, what is being said), and shown with when they happened ("last Thursday"). Memories about third parties resurface later, which is how gossip spreads.
 - After closing, each person who visited reflects on the day, and their "life lately" moves on a little. That shows up in the profile and in later conversations.
 
+### Life between visits
+- Each sim day every patron has roughly a one-in-eight chance that something happens away from the taproom: a work crunch, a sick kid, a car repair, a promotion, a new puppy. About 35 kinds are defined in `backend/app/seed/life_events.yaml`, and some are arcs (a job interview becomes a job offer or a rejection a few days later; a doctor's appointment becomes an all-clear or a scare).
+- It is rolled by code, not the model, and it changes behavior while it lasts, fading as the days pass: how likely they are to come in, how long they stay, how much they drink, the mood they arrive in, why they came, and whether they put drinks on a card instead of a tab.
+- They carry it into the room: a line about it goes in their scene ("on your mind lately"), it is saved as a memory, and the nightly reflection builds on it. Each new event gets one tiny model call to add a concrete detail; if that fails or reads badly the plain template text is used. In mock mode the template is always used.
+- See a person's recent events under "Off-screen" in their profile. The realism scorecard shows how often people actually bring theirs up.
+
 ### Relationships
 Every pair has familiarity and affinity, and both move after conversations (arguments hurt). Liking matters: people drift toward people they like and away from people they can't stand. Regulars greet friends they haven't seen in days, bartenders know the usual, and friends tend to follow each other in.
 
@@ -107,6 +113,12 @@ A deterministic Python **director** runs the world. The LLM is only asked for on
 
 Open http://localhost:5173/sales (or "Sales ↗" in the header) for sales by day, week or month, updating live. Click a day in the chart to open it, a drink to see who bought it, or a guest to see what they bought. The Transactions tab lists every card charge with its drinks, tip and card; open tabs are listed on the side. Dates are the taproom's simulated calendar. Drinks count on the day they were poured, tips on the day the payment closed.
 
+## Realism scorecard
+
+Open http://localhost:5173/realism (or "Realism ↗" in the header) to see how human the room sounds, by day or week. It scores five things out of 100: fresh chat openers, phrase variety, distinct voices (do different people sound alike?), topic variety (including repeats of the last few days) and loose endings (chats that trail off rather than closing on a tidy goodbye). Below the scores are the openers and phrases the room keeps reusing, the topic mix, and which guests repeat themselves most.
+
+The scorecard also feeds back into the dialogue: each turn's prompt ends with a short "don't reuse these phrases" list built from what that person and the room have said lately, and when too many chats end neatly, some are told to fizzle out instead. All of it is plain text statistics, with no extra model calls. Set `REALISM_FEEDBACK=false` to measure without the feedback.
+
 ## Keeping token use low
 
 - Model `claude-haiku-5-5`, thinking off, `effort: low`, JSON output capped at 300 tokens.
@@ -126,6 +138,7 @@ At the default pacing a full simulated day is on the order of a thousand short u
 | `SIM_SPEED` | `15` | sim minutes per real minute (also adjustable in the UI) |
 | `WEB_SEARCH_ENABLED` | `true` | news desk and phone lookups |
 | `MAX_CONCURRENT_LLM` | `3` | simultaneous API calls |
+| `REALISM_FEEDBACK` | `true` | tell speakers which phrases and openers are worn out |
 
 ## Customizing the cast
 

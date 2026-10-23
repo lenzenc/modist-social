@@ -28,6 +28,8 @@ class TurnRequest:
     buzz: float = 0.0
     battery: float = 1.0
     excuse: str = ""  # why this person should bow out of the chat this turn
+    avoid: list[str] = field(default_factory=list)  # worn-out phrases and openers; the mock steers around them
+    life: str = ""  # the freshest thing on this person's mind from off-screen, for the mock to bring up
 
 
 @dataclass
@@ -55,3 +57,5 @@ class LLM(Protocol):
     async def reflect(self, digest: str) -> dict | None: ...
 
     async def classify(self, event: str, roster: str) -> dict | None: ...
+
+    async def polish(self, who: str, event: str) -> str | None: ...

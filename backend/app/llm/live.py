@@ -268,6 +268,24 @@ class AnthropicLLM:
         )
         return await self._json(resp, "reflect")
 
+    async def polish(self, who: str, event: str) -> str | None:
+        resp = await self._create(
+            max_tokens=80,
+            thinking={"type": "disabled"},
+            output_config={"effort": "low"},
+            system=(
+                "You add texture to small things that happen to ordinary people away from a neighborhood taproom. "
+                "You are given a person and an event written as a clause with no subject, such as 'had the car break "
+                "down on Wednesday, and the repair bill is ugly'. Rewrite it in the same form: a single clause with no "
+                "subject, starting with a verb, under 25 words, adding one concrete, believable detail that fits this "
+                "person (a specific part, place, name or number). Keep the same facts and the same day, and stay "
+                "mundane: no dramatic escalation. Never use the person's name, age or job, and never use pronouns "
+                "(he, she, his, her, him). No final period. Reply with the clause only."
+            ),
+            messages=[{"role": "user", "content": f"Person: {who}\nEvent: {event}"}],
+        )
+        return self._text(resp) if resp else None
+
     async def classify(self, event: str, roster: str) -> dict | None:
         resp = await self._create(
             max_tokens=4000,

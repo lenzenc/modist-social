@@ -13,9 +13,11 @@ from app.config import settings
 from app.db.models import Message, Session, Thread, init_db
 from app.llm import make_llm
 from app.llm.usage import usage
+from app.realism_api import router as realism_router
 from app.sales_api import router as sales_router
 from app.seed.loader import seed_if_empty
 from app.sim import god as godmode
+from app.sim import life
 from app.sim.director import Director
 from app.sim.state import CHANNEL_DESC, CHANNELS
 
@@ -57,6 +59,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Modist Social", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(sales_router)
+app.include_router(realism_router)
 
 
 def _person(p) -> dict:
@@ -164,7 +167,19 @@ async def person(pid: str):
         "need": p.need, "thought": p.thought, "drinks": p.drinks,
     } if p.present and not p.is_bartender else None
     return {**_person(p), "persona": p.persona, "relationships": rels[:30], "memories": mems, "state": state,
-            "lately": director.lives.get(pid, ""), "visits": director.visits.get(pid, {}).get("n", 0)}
+            "lately": director.lives.get(pid, ""), "visits": director.visits.get(pid, {}).get("n", 0),
+            "life": [{"text": e.text, "cat": e.cat, "started_at": e.started_at.isoformat(), "ends_at": e.ends_at.isoformat(),
+                      "active": life.freshness(e, director.clock.now()) > 0}
+                     for e in reversed(director.life.get(pid, [])[-5:])]}
+
+
+@app.get("/api/realism/avoid/{pid}")
+async def realism_avoid(pid: str):
+    """The worn-out phrases the next prompt would tell this person to avoid (for checking the feedback loop)."""
+    if pid not in director.people:
+        raise HTTPException(404)
+    return {"avoid": director.realism.avoid_for(pid), "opening": director.realism.avoid_for(pid, first_line=True),
+            "tidy_share": round(director.realism.tidy_share(), 2), "feedback": settings.realism_feedback}
 
 
 @app.get("/api/stats")

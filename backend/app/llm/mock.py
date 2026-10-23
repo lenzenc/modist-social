@@ -2,6 +2,7 @@ import random
 
 from app.llm.types import TurnRequest, Utterance
 from app.sim import menu
+from app.sim.realism import norm
 
 _OPENERS = [
     "Hey, is that the new {beer}? How is it?",
@@ -60,15 +61,23 @@ _NEWS = [
 ]
 
 
+def _fresh(lines: list[str], avoid: list[str], r: random.Random) -> str:
+    """A canned line that doesn't contain a worn-out phrase, if there is one."""
+    ok = [x for x in lines if not any(a in norm(x) for a in avoid)]
+    return r.choice(ok or lines)
+
+
 class MockLLM:
     """Canned dialogue so the entire simulation and UI can be exercised for $0."""
 
     async def speak(self, req: TurnRequest) -> Utterance | None:
         r = random.Random()
         if req.last_line:
-            say = r.choice(_REPLIES)
+            say = _fresh(_REPLIES, req.avoid, r)
         else:
-            say = r.choice(_OPENERS).format(beer=r.choice(_BEERS))
+            say = _fresh([x.format(beer=r.choice(_BEERS)) for x in _OPENERS], req.avoid, r)
+        if req.life and not req.last_line and not req.is_bartender and r.random() < 0.4:
+            say = f"Ugh, {req.life.rstrip('.')}."
         action, target, drink = "none", "", ""
         if req.kind == "order" and req.again and req.is_bartender and not req.last_line:
             say = "Can I get you another?"
@@ -122,6 +131,9 @@ class MockLLM:
 
     async def reflect(self, digest: str) -> dict | None:
         return {"people": []}  # nothing to add in mock mode
+
+    async def polish(self, who: str, event: str) -> str | None:
+        return None  # the template text stands
 
     async def classify(self, event: str, roster: str) -> dict | None:
         return None  # the keyword estimate in sim.god is used instead

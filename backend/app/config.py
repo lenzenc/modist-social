@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     groups_enabled: bool = True
     groups_per_week: float = 30.0
 
+    # Tell speakers which phrases and openers the room has worn out (see sim/realism.py). Costs a few input tokens a turn.
+    realism_feedback: bool = True
+
     # Sim minutes that pass per real minute.
     sim_speed: float = 15.0
 

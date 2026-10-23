@@ -127,6 +127,8 @@ export interface Profile extends Person {
   state: { reason: string; mood: number; buzz: number; battery: number; need: string; thought: string; drinks: number } | null;
   lately: string;
   visits: number;
+  /** Things that happened to them away from the taproom, newest first. */
+  life: { text: string; cat: string; started_at: string; ends_at: string; active: boolean }[];
 }
 
 export type WsEvent =

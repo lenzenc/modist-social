@@ -125,6 +125,19 @@ function ProfilePane() {
             <Row k="Quirk" v={d.quirk} />
             {d.life && <Row k="Life" v={d.life} />}
             {p.lately && <Row k="Lately" v={p.lately} />}
+            {p.life?.length > 0 && (
+              <div className="flex gap-2">
+                <dt className="w-24 shrink-0 text-[var(--muted)]">Off-screen</dt>
+                <dd className="space-y-0.5">
+                  {p.life.map((e, i) => (
+                    <div key={i} className={e.active ? "" : "text-[var(--muted)]"}>
+                      {e.text}
+                      <span className="text-[var(--muted)]"> · {fmtDayTime(e.started_at)}</span>
+                    </div>
+                  ))}
+                </dd>
+              </div>
+            )}
             {d.takes && d.takes.length > 0 && <Row k="Believes" v={d.takes.join("; ")} />}
             {p.visits > 0 && <Row k="Visits" v={String(p.visits)} />}
             {d.joined && <Row k="First seen" v={fmtDayTime(d.joined)} />}

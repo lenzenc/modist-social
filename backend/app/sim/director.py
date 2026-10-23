@@ -12,10 +12,10 @@ from app.agents.memory import reflect_day, wrap_up
 from app.agents.prompts import persona_prompt, world_prompt
 from app.bus import bus
 from app.config import settings
-from app.db.models import Message, NewsItem, Payment, Person, SaleItem, Session, SimState, Thread, get_state, set_state
+from app.db.models import LifeEvent, Message, NewsItem, Payment, Person, SaleItem, Session, SimState, Thread, get_state, set_state
 from app.llm.usage import usage
 from app.seed.loader import color_for
-from app.sim import environment, human, newcomers
+from app.sim import environment, human, life, newcomers, realism
 from app.sim import god as godmode
 from app.sim import groups, menu, sales, seating
 from app.sim.clock import DEFAULT_START, SimClock, is_open, launch_time, open_close
@@ -55,6 +55,7 @@ class Director:
         self.llm = llm
         self.clock = SimClock(speed=settings.sim_speed)
         self.social = Social()
+        self.realism = realism.Realism()
         self.people: dict[str, PersonState] = {}
         self.threads: dict[int, ThreadState] = {}
         self.news: list[str] = []
@@ -73,6 +74,8 @@ class Director:
         self.cooldown: dict[tuple[str, str], datetime] = {}
         self.visits: dict[str, dict] = {}  # pid -> {"n": visits so far, "last": ISO time of the latest}
         self.lives: dict[str, str] = {}  # pid -> how their life stands lately, from the nightly reflection
+        self.life: dict[str, list[life.LifeEventRec]] = {}  # pid -> off-screen events, active or recent
+        self.life_day = ""  # the last sim day events were rolled for
         self.generating = False  # a newcomer is being made right now
         self.parties: dict[int, PartyState] = {}  # parties holding tables right now
         self._party_seq = 0
@@ -108,9 +111,11 @@ class Director:
             saved_god = await get_state(s, "god")
             self.visits = await get_state(s, "visits", {}) or {}
             self.lives = await get_state(s, "lives", {}) or {}
+            self.life_day = (await get_state(s, "life_day", {}) or {}).get("day", "")
         for p in self.people.values():
             self.persona_text[p.id] = persona_prompt(p, self.lives.get(p.id, ""))
         await self.social.load()
+        await self.warm_realism()
         if saved:
             was = datetime.fromisoformat(saved["sim_now"])
             start = launch_time(was)
@@ -121,6 +126,7 @@ class Director:
             self.crowd_days = saved.get("crowd_days", {})
             await self.save_clock()
         self.god = godmode.normalize(saved_god, self.clock.now())
+        await self.load_life()
         today = self.clock.now().strftime("%Y-%m-%d")
         async with Session() as s:
             # A crash or restart can strand threads mid-conversation; nobody is in the room after a restart.
@@ -133,6 +139,80 @@ class Director:
         if rows:
             self.news, self.news_day, self.news_for = [r.text for r in rows], today, today
         log.info("loaded %d people, sim time %s", len(self.people), self.clock.now())
+
+    async def load_life(self) -> None:
+        """Events still on someone's mind, or waiting on a follow-on."""
+        now = self.clock.now()
+        async with Session() as s:
+            rows = (await s.scalars(select(LifeEvent).where(LifeEvent.ends_at > now - timedelta(days=1)).order_by(LifeEvent.id))).all()
+        for r in rows:
+            self.life.setdefault(r.person_id, []).append(life.LifeEventRec(
+                kind=r.kind, text=r.text, started_at=r.started_at, ends_at=r.ends_at, cat=r.cat, keys=list(r.keys or []),
+                next_kind=r.next_kind, due_at=r.due_at, resolved=r.resolved, id=r.id,
+            ))
+
+    async def life_step(self, day: str) -> None:
+        """Once a sim day: arcs reach their endings and new things happen to people, whether or not they come in."""
+        now = self.clock.now()
+        d = now.date()
+        for p in self.patrons():
+            mine = self.life.setdefault(p.id, [])
+            rng = random.Random(f"{p.id}:{day}:arcs")
+            fresh = life.due_followups(mine, p.persona, now, rng) + life.roll_day(p.id, p.persona, mine, d)
+            await self.save_life(p.id, mine, fresh)
+            for rec in fresh:
+                await self.social.add_memory(p.id, now, life.memory_text(rec), [], life.IMPORTANCE.get(rec.cat, 5))
+                self.spawn(self.polish_event(p, rec))
+        await self.save_clock()
+
+    async def save_life(self, pid: str, mine: list, fresh: list) -> None:
+        """Write new events, and any change to resolved ones, to the database."""
+        async with Session() as s:
+            for rec in mine:
+                if rec.id is not None and (row := await s.get(LifeEvent, rec.id)):
+                    row.resolved, row.ends_at = rec.resolved, rec.ends_at
+            for rec in fresh:
+                row = LifeEvent(person_id=pid, kind=rec.kind, cat=rec.cat, text=rec.text, keys=rec.keys,
+                                started_at=rec.started_at, ends_at=rec.ends_at, next_kind=rec.next_kind, due_at=rec.due_at)
+                s.add(row)
+                await s.flush()
+                rec.id = row.id
+            await s.commit()
+        mine.extend(fresh)
+        del mine[:-12]  # a person's long-ago events stay in the database, not in memory
+
+    async def polish_event(self, p: PersonState, rec) -> None:
+        """Make a template event personal. The template stands if the model is unavailable or says nothing usable."""
+        if self.check_budget():
+            return
+        c = p.persona
+        who = f"{p.display}, {c.get('age')}, {c.get('job')}. Interests: {', '.join(c.get('interests', []))}. Life: {c.get('life', '')}"
+        text = await self.llm.polish(who, rec.text)
+        text = (text or "").strip().strip('"').strip().rstrip(".")
+        if not life.usable(text, p):
+            return
+        rec.text = text
+        if rec.id is not None:
+            async with Session() as s:
+                if row := await s.get(LifeEvent, rec.id):
+                    row.text = text
+                    await s.commit()
+
+    async def warm_realism(self) -> None:
+        """Seed the repetition tracker from stored speech so a restart does not forget what is worn out."""
+        async with Session() as s:
+            rows = (await s.execute(
+                select(Message.id, Message.thread_id, Message.speaker_id, Message.text)
+                .where(Message.kind == "speech", Message.thread_id.is_not(None), Message.speaker_id.is_not(None))
+                .order_by(Message.id.desc()).limit(realism.Realism.ROOM)
+            )).all()
+            firsts = set()
+            if rows:
+                firsts = {mid for mid, in (await s.execute(
+                    select(func.min(Message.id)).where(Message.kind == "speech", Message.thread_id.in_({r[1] for r in rows}))
+                    .group_by(Message.thread_id)
+                )).all()}
+        self.realism.warm([(sid, text, mid in firsts) for mid, _, sid, text in reversed(rows)])
 
     def spawn(self, coro) -> asyncio.Task:
         task = asyncio.create_task(coro)
@@ -263,6 +343,8 @@ class Director:
             s.add(m)
             await s.commit()
         if thread:
+            if kind == "speech" and speaker:
+                self.realism.add(speaker, text, first=not any(k == "speech" for k, _, _ in thread.lines))
             thread.lines.append((kind, speaker or "", text))
         bus.publish({"type": "message", "message": {
             "id": m.id, "thread_id": m.thread_id, "channel": channel, "speaker_id": speaker,
@@ -320,6 +402,9 @@ class Director:
             return
         t.closing = True
         now = self.clock.now()
+        said = [x for k, _, x in t.lines if k == "speech"]
+        if t.kind == "chat" and len(said) >= realism.TIDY_MIN_LINES:
+            self.realism.add_ending(realism.tidy_ending(said))
         for a in t.members:
             for b in t.members:
                 if a < b:
@@ -869,20 +954,23 @@ class Director:
         """Everything about a guest's visit that is settled at the door: stay, tab, drinks, mood. No routing."""
         now = self.clock.now()
         p.present, p.location, p.visited_day, p.wants_leave, p.pending_arrival = True, "ordering", now.strftime("%Y-%m-%d"), False, None
-        stay = p.persona.get("stay", 90) * self.rng.uniform(0.6, 1.5) * human.stay_scale(p.persona)
+        mine = self.life.get(p.id, [])
+        stay = p.persona.get("stay", 90) * self.rng.uniform(0.6, 1.5) * human.stay_scale(p.persona) * life.stay_mult(mine, now)
         close = open_close(now)[1]
         p.leave_at = min(now + timedelta(minutes=stay), close + timedelta(minutes=self.rng.uniform(0, 5)))
         p.free_since = None
         # Today's tab, drink count and card habit; one visit in ten they do the opposite of their usual.
         usual = p.persona.get("pay", "card")
         p.pay_mode = usual if self.rng.random() < 0.9 else ("card" if usual == "tab" else "tab")
-        p.drinks, p.drink_goal, p.tab_id, p.return_to = 0, human.goal_shift(p.persona, sales.pick_goal(self.rng, stay), self.rng), None, None
+        p.pay_mode = life.pay_override(mine, now) or p.pay_mode
+        p.drinks, p.drink_goal, p.tab_id, p.return_to = 0, max(1, human.goal_shift(p.persona, sales.pick_goal(self.rng, stay), self.rng) + life.drink_delta(mine, now)), None, None
         p.next_drink_at = None
         prev = self.visits.get(p.id, {})
         p.gap_days = max(0, (now.date() - datetime.fromisoformat(prev["last"]).date()).days) if prev.get("last") else 0
         self.visits[p.id] = {"n": prev.get("n", 0) + 1, "last": now.isoformat()}
-        p.arrived_at, p.reason, p.busy_until, p.thought = now, human.pick_reason(p.persona, self.rng), None, ""
-        p.mood, p.buzz, p.battery = human.opening_mood(p.persona, self.rng), 0.0, self.rng.uniform(0.8, 1.0)
+        p.arrived_at, p.reason, p.busy_until, p.thought = now, life.reason_override(mine, now) or human.pick_reason(p.persona, self.rng), None, ""
+        p.mood = max(-1.0, min(1.0, human.opening_mood(p.persona, self.rng) + life.mood_shift(mine, now)))
+        p.buzz, p.battery = 0.0, self.rng.uniform(0.8, 1.0)
         p.need, p.need_at = human.pick_need(self.rng, stay, now, now.weekday() >= 3)
         p.first_visit = bool(p.persona.get("walkin")) and self.visits[p.id]["n"] == 1
         bus.publish({"type": "person", "person": self.person_view(p)})  # keeps visit counts current in open browsers
@@ -1005,6 +1093,10 @@ class Director:
             self.news_day = day
             self.spawn(self.news_desk(day))
 
+        if self.life_day != day:
+            self.life_day = day  # claimed now so a slow roll is not started twice
+            self.spawn(self.life_step(day))
+
         await self.update_shift(now)
 
         if is_open(now):
@@ -1103,6 +1195,7 @@ class Director:
                 continue
             d = p.persona
             rate = arrival_rate(d.get("freq", 2), d.get("days", []), d.get("window", [17, 20]), now) * self.crowd
+            rate *= life.visit_mult(self.life.get(p.id, []), now)
             if self.rng.random() < 1 - math.exp(-rate * dt_min / 60):
                 await self.arrive(p)
 
@@ -1491,6 +1584,7 @@ class Director:
         async with Session() as s:
             await set_state(s, "visits", self.visits)
             await set_state(s, "lives", self.lives)
+            await set_state(s, "life_day", {"day": self.life_day})
             await set_state(s, "clock", {
                 "sim_now": self.clock.now().isoformat(), "speed": self.clock.speed,
                 "crowd": self.crowd, "crowd_days": self.crowd_days,
