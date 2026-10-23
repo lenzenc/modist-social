@@ -96,7 +96,7 @@ class Message(Base):
     thread_id: Mapped[int | None] = mapped_column(ForeignKey("thread.id"), nullable=True, index=True)
     channel: Mapped[str] = mapped_column(String(32), index=True)
     speaker_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    kind: Mapped[str] = mapped_column(String(16), default="speech")  # speech | system
+    kind: Mapped[str] = mapped_column(String(16), default="speech")  # speech | system | action
     text: Mapped[str] = mapped_column(Text)
     sim_ts: Mapped[datetime] = mapped_column(DateTime)
     thought: Mapped[str | None] = mapped_column(Text, nullable=True)  # the speaker's private thought, never shown in chat

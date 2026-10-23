@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     # Tell speakers which phrases and openers the room has worn out (see sim/realism.py). Costs a few input tokens a turn.
     realism_feedback: bool = True
 
+    # One small batched call writes fresh idle beats (a glance at the phone, a fidget) for the room; code templates fill in otherwise.
+    llm_beats: bool = True
+    beat_calls_per_sim_hour: int = 1
+
     # Sim minutes that pass per real minute.
     sim_speed: float = 15.0
 

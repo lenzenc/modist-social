@@ -15,7 +15,7 @@ from app.config import settings
 from app.db.models import LifeEvent, Message, NewsItem, Payment, Person, SaleItem, Session, SimState, Thread, get_state, set_state
 from app.llm.usage import usage
 from app.seed.loader import color_for
-from app.sim import bonds, drunk, environment, human, life, newcomers, realism
+from app.sim import beats, bonds, drunk, environment, human, life, newcomers, realism
 from app.sim import god as godmode
 from app.sim import groups, menu, sales, seating
 from app.sim.clock import DEFAULT_START, SimClock, is_open, launch_time, open_close
@@ -81,6 +81,12 @@ class Director:
         self.drunk_log: list[dict] = []  # every drunk visit lately, for the scorecard
         self.gossip_cred: dict[str, int] = {}  # pid -> how far others can trust what they pass on: see sim.gossip
         self.gossip_log: list[dict] = []  # rumors that reached their subject or got corrected, for the scorecard
+        self.beat_pool: dict[str, list[str]] = {}  # pid -> model-written idle beats not yet used
+        self.beat_calls: list[datetime] = []  # when the batched beats call last ran
+        self.beat_busy = False
+        self.now_playing: tuple[str, str, datetime] | None = None  # (title, artist, until) on the jukebox
+        self.last_song: datetime | None = None
+        self.waved: dict[tuple[str, str], datetime] = {}  # (waver, arrival) -> when, for a nudge toward a chat
         self.generating = False  # a newcomer is being made right now
         self.parties: dict[int, PartyState] = {}  # parties holding tables right now
         self._party_seq = 0
@@ -412,6 +418,13 @@ class Director:
         if thread:
             bus.publish(self.thread_event(thread))
 
+    async def beat(self, p: PersonState, text: str, thread: ThreadState | None = None) -> None:
+        """Something a person does rather than says, shown under their name."""
+        await self.post(thread.channel if thread else (p.location or "door"), text, p.id, "action", thread)
+
+    def song(self, now: datetime) -> tuple[str, str] | None:
+        return self.now_playing[:2] if self.now_playing and now < self.now_playing[2] else None
+
     async def open_thread(self, channel: str, kind: str, members: list[str], max_turns: int,
                           seated: bool = False, again: bool = False, ask: bool = False) -> ThreadState:
         now = self.clock.now()
@@ -532,6 +545,7 @@ class Director:
                     break
                 began = self.clock.now()
                 await self.take_turn(t, speaker)
+                await self.quiet_step(t, speaker)
                 await self.maybe_second_bartender(t)
                 # Time spent waiting on the model already counts as part of the pause between lines.
                 waited = (self.clock.now() - began).total_seconds()
@@ -551,6 +565,30 @@ class Director:
                 if not await self.rejoin(patron):
                     await self.settle(patron)
             # Seated guests stay on their stool after ordering or chatting; the social step takes it from here.
+
+    async def quiet_step(self, t: ThreadState, speaker: PersonState) -> None:
+        """What fills the gaps between lines: someone fidgets, or the talk stalls."""
+        if t.kind != "chat" or t.closing or t.id not in self.threads:
+            return
+        now = self.clock.now()
+        others = [self.people[m] for m in t.members if m != speaker.id and self.people[m].present and not self.people[m].is_bartender]
+        if others:
+            q = self.rng.choice(others)
+            live = environment.live(environment.game_on(now), now) and q.location == "bar"
+            if text := beats.chat_beat(self.rng, q, live):
+                await self.beat(q, text, t)
+        said = [x for k, _, x in t.lines if k == "speech"]
+        short = bool(said) and len(said[-1]) < 25
+        flagging = t.turns - t.last_topic_turn >= 6
+        if t.turns < 2 or t.turns >= t.max_turns or self.rng.random() >= beats.lull_chance(short, flagging, t.lulls):
+            t.lulls = 0
+            return
+        t.lulls += 1
+        t.lull = True
+        if t.lulls >= 2:
+            t.max_turns = min(t.max_turns, t.turns + 2)  # two stalls in a row and the chat is done
+        await self.post(t.channel, self.rng.choice(beats.LULL_TEXT), None, "action", t)
+        await self.clock.sleep(self.rng.uniform(60, 150))
 
     # ---------------------------------------------------------------- the register
 
@@ -874,6 +912,10 @@ class Director:
         if t.kind == "chat" and not p.is_bartender and p.id not in t.excuse:
             if why := human.excuse_due(p, self.clock.now(), t.turns, self.rng):
                 t.excuse[p.id] = why
+                if p.need == "call" and why.startswith("You need") and self.rng.random() < 0.5:
+                    t.cut.add(p.id)  # the call comes in mid-sentence
+            elif p.id not in t.cut and beats.cut_due(self.rng, t.turns):
+                t.cut.add(p.id)
         req = agent_mod.build_turn(self, t, p, wind_down)
         bus.publish({"type": "typing", "thread_id": t.id, "person_id": p.id, "on": True})
         began = time.monotonic()
@@ -887,7 +929,9 @@ class Director:
             t.failures += 1
             return
         utt = agent_mod.sanitize(utt, p)
-        if not utt.say:
+        if t.kind != "chat":
+            utt.beat = ""
+        if not utt.say and not utt.beat:
             t.failures += 1
             return
         # The world moved while we waited on the model: make sure this turn still makes sense.
@@ -898,9 +942,13 @@ class Director:
         t.turns += 1
         t.ever[p.id] = None
         p.last_spoke = self.clock.now()
-        await self.post(t.channel, utt.say, p.id, "speech", t, thought=utt.thought)
+        if utt.beat:
+            await self.beat(p, f"{p.short} {utt.beat}.", t)
+        if utt.say:
+            await self.post(t.channel, utt.say, p.id, "speech", t, thought=utt.thought)
         if not p.is_bartender:
-            human.spoke(p)
+            if utt.say:
+                human.spoke(p)
             human.blend_mood(p, utt.mood)
             p.thought = utt.thought or p.thought
         if t.kind == "order":
@@ -963,10 +1011,14 @@ class Director:
         guest.drink, t.ordered, t.order_drink = name, t.ordered or not p.is_bartender, name
         self.publish_presence()
 
-    async def excuse(self, t: ThreadState, p: PersonState, why: str) -> None:
+    async def excuse(self, t: ThreadState, p: PersonState, why: str, cut: bool = False) -> None:
         """Bow out of a conversation but stay in the taproom, for a few minutes or a good while."""
         need = p.need if why.startswith("You need") else ""
-        await self.leave_thread(t, p, f"{p.short} excuses themselves" + (f" to {human.NEEDS[need]}." if need else "."))
+        if cut:  # a phone call, mid-sentence
+            need, why = (p.need if p.need == "call" else ""), "You need to take a call."
+            await self.leave_thread(t, p, f"📱 {p.short}'s phone buzzes and {p.short} breaks off mid-sentence to take it.")
+        else:
+            await self.leave_thread(t, p, f"{p.short} excuses themselves" + (f" to {human.NEEDS[need]}." if need else "."))
         p.free_since = self.clock.now() + human.away_for(why, self.rng)
         if need:
             p.need, p.need_at = "", None
@@ -977,8 +1029,10 @@ class Director:
         if utt.action == "leave" or forced_leave:
             await self.leave_thread(t, p, f"{p.short} heads out.")
             await self.depart(p)
-        elif (utt.action == "excuse" or p.id in t.excuse) and t.kind == "chat":
-            await self.excuse(t, p, t.excuse.pop(p.id, ""))
+        elif (utt.action == "excuse" or p.id in t.excuse or p.id in t.cut) and t.kind == "chat":
+            cut = p.id in t.cut
+            t.cut.discard(p.id)
+            await self.excuse(t, p, t.excuse.pop(p.id, ""), cut)
         elif utt.action == "move" and utt.target != t.channel:
             if utt.target == "bar" and not p.seated and self.free_stool() is None:
                 return  # no stool free; they stay where they are
@@ -1002,7 +1056,7 @@ class Director:
         if not settings.web_search_enabled or len(self.lookups) >= settings.max_lookups_per_sim_hour or self.check_budget():
             return
         self.lookups.append(now)
-        await self.post(t.channel, f"{p.short} pulls out a phone to look something up.", kind="system", thread=t)
+        await self.beat(p, f"{p.short} pulls out a phone to look something up.", t)
         fact = await self.llm.lookup(query, settings.brewery_city)
         if fact:
             p.pending_fact = fact[:400]
@@ -1065,7 +1119,7 @@ class Director:
             if (now - datetime.strptime(h["day"], "%Y-%m-%d")).days <= 3:
                 human.nudge_mood(p, -0.15)
                 p.drink_goal = drunk.hangover_goal(p.drink_goal)
-        p.need, p.need_at = human.pick_need(self.rng, stay, now, now.weekday() >= 3)
+        p.need, p.need_at = human.pick_need(self.rng, stay, now, now.weekday() >= 3, beats.smoker(p))
         p.first_visit = bool(p.persona.get("walkin")) and self.visits[p.id]["n"] == 1
         bus.publish({"type": "person", "person": self.person_view(p)})  # keeps visit counts current in open browsers
 
@@ -1074,6 +1128,7 @@ class Director:
         now = self.clock.now()
         close = open_close(now)[1]
         await self.post("door", f"🍺 {p.display} walks in.", kind="system")
+        await self.wave_hello(p, now)
         # Friends tend to follow each other in.
         if now < close - timedelta(minutes=LAST_CALL_MIN + 20):
             good = any(e.cat == "good" for e in life.freshest(self.life.get(p.id, []), now))
@@ -1091,6 +1146,21 @@ class Director:
             p.spot = self.choose_area(p)
             p.next_drink_at = now + timedelta(minutes=10)
             await self.settle(p)
+
+    async def wave_hello(self, p: PersonState, now: datetime) -> None:
+        """Friends already in the room notice someone come in and wave, now and then."""
+        friends = [q for q in self.patrons() if q.present and q.id != p.id and not q.waiting
+                   and self.social.rel(q.id, p.id).familiarity >= 35 and not bonds.avoids(self.social.rel(q.id, p.id), now)]
+        self.rng.shuffle(friends)
+        for q in friends[:2]:
+            if self.rng.random() < 0.4:
+                self.waved[(q.id, p.id)] = now
+                await self.beat(q, beats.wave_text(self.rng, q, p))
+
+    def wave_boost(self, a: str, b: str, now: datetime) -> float:
+        """A wave from the door makes a chat between the two a little likelier for a while."""
+        when = self.waved.get((a, b)) or self.waved.get((b, a))
+        return 1.5 if when and now - when < timedelta(minutes=20) else 1.0
 
     def party_table(self, p: PersonState, area: str) -> int | None:
         """The table held for this guest's party in this area, if it still has a seat for them."""
@@ -1120,6 +1190,7 @@ class Director:
         p.present, p.location, p.thread_id, p.wants_leave, p.free_since, p.stool, p.drink = False, None, None, False, None, None, ""
         p.table, p.spot = None, None
         p.return_to, p.next_drink_at = None, None
+        self.beat_pool.pop(p.id, None)
         self.leave_party(p)
         await self.post("door", f"👋 {p.display} heads out.", kind="system")
         if ride:
@@ -1239,6 +1310,7 @@ class Director:
 
         if is_open(now):
             await self.environment_step(now)
+            self.maybe_refresh_beats(now)
         for p in self.patrons():
             if p.present:
                 human.tick(p, dt_min, drunk.decay_mult(p, now))
@@ -1579,6 +1651,65 @@ class Director:
             p.waiting = False
             await self.open_order(p, b, w)
 
+    async def step_out(self, p: PersonState, now: datetime) -> None:
+        """A smoker with nobody to talk to steps outside for a few minutes."""
+        p.need, p.need_at = "", None
+        p.free_since = now + timedelta(minutes=self.rng.uniform(5, 12))
+        await self.beat(p, f"🚬 {p.short} steps out front for a smoke.")
+
+    async def idle_beat(self, p: PersonState, now: datetime, game, free: list[PersonState]) -> bool:
+        """Something a free guest does while nobody talks to them: a glance at the phone, the TV, the jukebox."""
+        live = environment.live(game, now) and p.location == "bar"
+        jukebox_ok = self.last_song is None or now - self.last_song >= timedelta(minutes=beats.JUKEBOX_COOLDOWN_MIN)
+        kind = beats.roll_idle(self.rng, p, game_live=live, friends_in_area=bool(free), jukebox_ok=jukebox_ok)
+        if kind == "jukebox":
+            title, artist = beats.pick_song(self.rng, p.persona)
+            self.last_song, self.now_playing = now, (title, artist, now + timedelta(minutes=4))
+            text = f"🎵 {p.short} puts \"{title}\" by {artist} on the jukebox."
+        elif kind in beats.POOLABLE and self.beat_pool.get(p.id) and self.rng.random() < 0.6:
+            text = f"{p.short} {self.beat_pool[p.id].pop(0)}."
+        else:
+            text = beats.idle_text(self.rng, kind, p, game.team if game else "")
+        p.busy_until = now + timedelta(minutes=self.rng.uniform(*beats.IDLE_MIN[kind]))
+        await self.beat(p, text)
+        return True
+
+    def maybe_refresh_beats(self, now: datetime) -> None:
+        """Once the room has run out of model-written beats, ask for a fresh batch: one small call, capped per sim hour."""
+        guests = [p for p in self.patrons() if p.present]
+        if (not settings.llm_beats or self.beat_busy or len(guests) < 3 or not hasattr(self.llm, "beats")
+                or sum(len(self.beat_pool.get(p.id, [])) for p in guests) >= len(guests)):
+            return
+        self.beat_calls = [x for x in self.beat_calls if now - x < timedelta(hours=1)]
+        if len(self.beat_calls) >= settings.beat_calls_per_sim_hour or self.check_budget():
+            return
+        self.beat_calls.append(now)
+        self.beat_busy = True
+        self.spawn(self.beat_refresh(self.rng.sample(guests, min(8, len(guests))), now))
+
+    async def beat_refresh(self, guests: list[PersonState], now: datetime) -> None:
+        try:
+            roster = "\n".join(
+                f"{p.short} | {p.persona.get('job', '')} | {p.persona.get('quirk', '')} | "
+                f"{(p.persona.get('interests') or [''])[0]} | {p.drink or 'no drink'} | {p.location}" for p in guests)
+            room = environment.room_line(now, sum(1 for p in self.patrons() if p.present), self.song(now))
+            got = await self.llm.beats(roster, room)
+        except Exception:
+            log.exception("beats call failed")
+            got = None
+        finally:
+            self.beat_busy = False
+        for name, lines in (got or {}).items():
+            pid = self.resolve(name)
+            p = self.people.get(pid) if pid else None
+            if not p or p.is_bartender:
+                continue
+            pool = self.beat_pool.setdefault(pid, [])
+            for text in lines:
+                if text := beats.clean_beat(text, p):
+                    pool.append(text)
+            del pool[beats.POOL_PER_PERSON:]
+
     async def social_step(self, now: datetime, dt_min: float) -> None:
         if self.god and not godmode.alive(self.god, now):
             await self.clear_god()
@@ -1597,6 +1728,10 @@ class Director:
                 if self.wants_round(p, now) and self.bartenders_on():
                     taken.add(p.id)
                     await self.request_order(p)
+                    continue
+                if p.need == "smoke" and p.need_at and now >= p.need_at:
+                    taken.add(p.id)
+                    await self.step_out(p, now)
                     continue
                 foe = next((q for q in self.patrons() if q.present and q.location == loc and q.id != p.id
                             and bonds.avoids(self.social.rel(p.id, q.id), now)), None)
@@ -1632,7 +1767,7 @@ class Director:
                     fams = [self.social.rel(p.id, q.id).familiarity for q in partners]
                     # Strangers on neighbouring stools strike up a conversation far more often than strangers across the room.
                     near = [1.0 if self.stool_neighbors(p, [x.id]) else 0.0 for x in partners]
-                    q = self.rng.choices(partners, [(0.05 + f / 100 + 0.3 * x.talk + 0.4 * n) * human.affinity_weight(self.social.rel(p.id, x.id).affinity) * bonds.join_weight(self.social.rel(p.id, x.id))
+                    q = self.rng.choices(partners, [(0.05 + f / 100 + 0.3 * x.talk + 0.4 * n) * human.affinity_weight(self.social.rel(p.id, x.id).affinity) * bonds.join_weight(self.social.rel(p.id, x.id)) * self.wave_boost(p.id, x.id, now)
                                                     for f, x, n in zip(fams, partners, near)])[0]
                     fam = self.social.rel(p.id, q.id).familiarity
                     if self.rng.random() < min(0.99, _prob(0.04 + 0.35 * fam / 100 + 0.04 * p.talk + (0.06 if self.stool_neighbors(p, [q.id]) else 0), k) * human.drive(p, now)):
@@ -1653,14 +1788,10 @@ class Director:
                         await self.open_thread("bar", "chat", members, self.rng.randint(5, 9))
                         continue
                 idle = p.busy_until is None or now >= p.busy_until
-                if idle and (p.reason in ("solo", "game") or p.battery < human.LOW_BATTERY) and self.rng.random() < _prob(0.04, k):
-                    if p.reason == "game" and environment.live(game, now):
-                        text = f"{{}} watches the {game.team} game on the bar TV."
-                    else:
-                        text = self.rng.choice(human.ACTIVITIES)
-                    p.busy_until = now + timedelta(minutes=self.rng.uniform(15, 30))
-                    await self.post(p.location, text.format(p.short), kind="system")
-                    continue
+                restless = p.reason in ("solo", "game") or p.battery < human.LOW_BATTERY
+                if idle and self.rng.random() < _prob(0.04 if restless else 0.012, k):
+                    if await self.idle_beat(p, now, game, [q for q in free if q.id != p.id]):
+                        continue
                 if (now - p.free_since).total_seconds() >= 20 * 60 and self.rng.random() < _prob(0.03, k):
                     busy = [t.channel for t in self.threads.values() if t.kind == "chat" and t.channel != loc and len(t.members) < MAX_GROUP]
                     if busy:

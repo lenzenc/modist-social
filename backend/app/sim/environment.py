@@ -98,7 +98,7 @@ def fan_of(team: str, persona: dict) -> bool:
     return team.lower() in blob or (team == "Timberwolves" and "wolves" in blob)
 
 
-def room_line(now: datetime, guests: int) -> str:
+def room_line(now: datetime, guests: int, song: tuple[str, str] | None = None) -> str:
     """One line of what the room is like, for every guest's scene."""
     parts = [f"Outside it is {weather(now)}.", f"The taproom is {noise(guests)}."]
     g = game_on(now)
@@ -109,4 +109,6 @@ def room_line(now: datetime, guests: int) -> str:
         parts.append(f"The {g.team} play the {g.opp} at {g.start.strftime('%-I%p').lower()}; it'll be on the bar TV.")
     if trivia_on(now):
         parts.append("Trivia is going at the inside tables.")
+    if song:
+        parts.append(f"On the jukebox: \"{song[0]}\" by {song[1]}.")
     return " ".join(parts)

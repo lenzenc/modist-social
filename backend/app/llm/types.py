@@ -34,6 +34,8 @@ class TurnRequest:
     avoid: list[str] = field(default_factory=list)  # worn-out phrases and openers; the mock steers around them
     life: str = ""  # the freshest thing on this person's mind from off-screen, for the mock to bring up
     rumor: tuple[str, str] | None = None  # (who it's about, what was said): a rumor the mock may repeat
+    lull: bool = False  # the talk just stalled (the mock may answer with a gesture alone)
+    cut: bool = False  # break off mid-sentence and step away for a call
 
 
 @dataclass
@@ -45,6 +47,7 @@ class Utterance:
     drink: str = ""  # exact menu name when ordering or pouring a specific drink
     thought: str = ""  # a private thought that nobody hears
     mood: str = ""  # how they feel after this line: good | fine | meh | annoyed | down
+    beat: str = ""  # a small physical action as a clause with no subject ("glances at the TV"); say may be empty
 
 
 class LLM(Protocol):
@@ -63,3 +66,5 @@ class LLM(Protocol):
     async def classify(self, event: str, roster: str) -> dict | None: ...
 
     async def polish(self, who: str, event: str) -> str | None: ...
+
+    async def beats(self, roster: str, room: str) -> dict[str, list[str]] | None: ...

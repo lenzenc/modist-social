@@ -134,6 +134,9 @@ class ThreadState:
     excuse: dict[str, str] = field(default_factory=dict)  # who should bow out this turn, and why
     span: dict[str, list] = field(default_factory=dict)  # pid -> [first line index, last line index or None]
     told: dict[str, list[int]] = field(default_factory=dict)  # pid -> rumor memory ids they had in mind this thread
+    lull: bool = False  # the talk just stalled; the next speaker is told
+    lulls: int = 0  # stalls in a row
+    cut: set[str] = field(default_factory=set)  # who breaks off mid-sentence this turn (a phone call)
 
 
 @dataclass

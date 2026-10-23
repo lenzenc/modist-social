@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from app.db.models import BondChange, LifeEvent, Memory, Message, Person, Session, Thread, get_state
-from app.sim import bonds, drunk, gossip, life, realism
+from app.sim import beats, bonds, drunk, gossip, life, realism
 from app.sim.state import display_name
 
 router = APIRouter(prefix="/api/realism")
@@ -63,6 +63,9 @@ async def summary(period: str = "day", date: str = ""):
         top = sorted({r["origin_id"] for r in rumor_rows if r["origin_id"] is not None},
                      key=lambda o: -max(r["hops"] for r in rumor_rows if r["origin_id"] == o))[:3]
         trails = (await s.scalars(select(Memory).where(Memory.origin_id.in_(top)).order_by(Memory.id))).all() if top else []
+        acted = (await s.scalars(select(Message.speaker_id).where(
+            Message.kind == "action", Message.sim_ts >= datetime.combine(start, time.min),
+            Message.sim_ts < datetime.combine(end, time.min)))).all()
         moves = (await s.scalars(select(BondChange).where(
             BondChange.sim_ts >= datetime.combine(start, time.min), BondChange.sim_ts < datetime.combine(end, time.min)
         ).order_by(BondChange.id.desc()))).all()
@@ -100,6 +103,7 @@ async def summary(period: str = "day", date: str = ""):
         "range": {"start": start.isoformat(), "end": (end - timedelta(days=1)).isoformat(), "period": period},
         **result, "series": series, "life": life.continuity(in_range, events, names),
         "drunk": drunk.consequences(drunk_log),
+        "quiet": beats.quiet_share(len(acted), len(in_range), sum(1 for a in acted if a is None)),
         "gossip": {**gossip.spread(rumor_rows, gossip_log), "trails": _trails(top, trails, names)},
     }
 

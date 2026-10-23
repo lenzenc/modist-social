@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from app.agents.prompts import persona_prompt
 from app.config import settings
 from app.llm.types import TurnRequest, Utterance
-from app.sim import bonds, drunk, environment, gossip, human, life
+from app.sim import beats, bonds, drunk, environment, gossip, human, life
 from app.sim import god as godmode
 from app.sim import sales
 from app.sim.social import RECALL_MAX, RECALL_QUICK, rel_time, relation_label
@@ -60,7 +60,7 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
         out.append(f"It is {fmt_time(now)}. You are at the {where} of Modist Social{_drinking(p)}.")
 
     guests_in = sum(1 for x in d.people.values() if x.present and not x.is_bartender)
-    out.append(environment.room_line(now, guests_in))
+    out.append(environment.room_line(now, guests_in, d.song(now)))
     if not p.is_bartender and (feel := human.right_now(p, now)):
         out.append(feel)
     mine = d.life.get(p.id, []) if not p.is_bartender else []
@@ -93,7 +93,8 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
     god = getattr(d, "god", None)
     event = god["text"] if god else ""
     now_ = d.clock.now()
-    flagging = bool(t.lines) and (t.turns - t.last_topic_turn >= 6 or (len(t.lines) >= 2 and all(len(x[2]) < 25 for x in t.lines[-2:])))
+    said = [x for x in t.lines if x[0] == "speech"]
+    flagging = bool(said) and (t.turns - t.last_topic_turn >= 6 or (len(said) >= 2 and all(len(x[2]) < 25 for x in said[-2:])))
     bled = bool(god) and t.kind == "chat" and not t.on_event and flagging and rng.random() < godmode.bleed(god, now_)
     if bled:
         # A hot story spills into a chat that was about something else.
@@ -136,7 +137,7 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
     if t.lines:
         for kind, sid, text in t.lines[-TRANSCRIPT_LINES:]:
             who = d.people[sid].short if sid in d.people else ""
-            out.append(f"({text})" if kind == "system" else f"{who}{' (you)' if sid == p.id else ''}: {text}")
+            out.append(f"({text})" if kind in ("system", "action") else f"{who}{' (you)' if sid == p.id else ''}: {text}")
     else:
         out.append("(nobody has said anything yet)")
 
@@ -214,6 +215,16 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
             p.overshare_pending = False
             p.overshared_with |= {o.id for o in guests}
             p.slops.append("said something you shouldn't have")
+    lull, cut = False, False
+    if t.kind == "chat":
+        if t.lull:
+            lull, t.lull = True, False
+            hints.append(beats.LULL_HINT)
+        elif t.lines and rng.random() < beats.GESTURE_ODDS:
+            hints.append(beats.GESTURE_HINT)
+        if p.id in t.cut and not p.is_bartender:
+            cut = True
+            hints.append(beats.CUT_HINT)
     if last_speaker and last_speaker == p.id:
         hints.append("You spoke last; only add something if it moves things forward.")
     if wind_down:
@@ -251,7 +262,7 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
         mood=p.mood, buzz=p.buzz, battery=p.battery,
         drunk=drunk.tier(p.buzz), serve=serve, water=water,
         excuse=t.excuse.get(p.id, ""),
-        avoid=avoid,
+        avoid=avoid, lull=lull, cut=cut,
         life=(life.freshest(mine, now, 1)[0].text if life.freshest(mine, now, 1) else ""),
         rumor=_rumor_for_mock(rumors, names, around, [o.short for o in others if not o.is_bartender], rng)
         if t.kind == "chat" and not p.is_bartender else None,
@@ -315,6 +326,7 @@ def sanitize(u: Utterance, p: PersonState) -> Utterance:
     u.say = clean_say(u.say, p)
     if u.action not in ("none", "leave", "move", "introduce", "excuse"):
         u.action = "none"
+    u.beat = beats.clean_beat(u.beat, p)
     if u.mood not in human.MOOD_TAGS:
         u.mood = ""
     if u.action == "move" and u.target not in LOCATIONS:

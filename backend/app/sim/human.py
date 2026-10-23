@@ -14,6 +14,7 @@ NEEDS = {
     "call": "take a phone call",
     "air": "step outside for some air",
     "food": "grab something from the food truck",
+    "smoke": "step out front for a smoke",
 }
 REASON_TEXT = {
     "unwind": "here to unwind after the day",
@@ -23,12 +24,6 @@ REASON_TEXT = {
     "date": "here with something like a date in mind",
     "work": "working",
 }
-ACTIVITIES = [
-    "{} scrolls through their phone.",
-    "{} people-watches over their pint.",
-    "{} reads something on their phone.",
-    "{} studies the chalkboard like it owes them money.",
-]
 STYLE_TEXT = {
     "listener": "You listen more than you talk: short replies and good follow-up questions.",
     "storyteller": "You tell stories, with details and tangents.",
@@ -82,10 +77,12 @@ def opening_mood(persona: dict, rng: random.Random) -> float:
     return max(-0.8, min(0.8, rng.gauss(0.05, spread)))
 
 
-def pick_need(rng: random.Random, stay_min: float, now: datetime, food_truck: bool) -> tuple[str, datetime | None]:
-    if stay_min < 40 or rng.random() > 0.4:
+def pick_need(rng: random.Random, stay_min: float, now: datetime, food_truck: bool, smoker: bool = False) -> tuple[str, datetime | None]:
+    if stay_min < 40 or rng.random() > (0.75 if smoker else 0.4):
         return "", None
-    pool = [k for k in NEEDS if k != "food" or food_truck]
+    pool = [k for k in NEEDS if (k != "food" or food_truck) and (k != "smoke" or smoker)]
+    if smoker:
+        pool += ["smoke"] * 3
     return rng.choice(pool), now + timedelta(minutes=rng.uniform(0.3, 0.8) * stay_min)
 
 

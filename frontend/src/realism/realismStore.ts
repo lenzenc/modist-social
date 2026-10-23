@@ -34,6 +34,7 @@ export interface Summary {
     tidy_share?: number;
   };
   people: PersonRow[];
+  quiet: { share: number | null; band: Band; actions: number; speech: number; lulls: number };
   drunk: { rate: number | null; band: Band; visits: number; cut_offs: number; messes: number; rides: number };
   gossip: {
     rate: number | null;

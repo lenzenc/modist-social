@@ -20,8 +20,26 @@ UTTERANCE_SCHEMA = {
         "lookup": {"type": "string"},
         "drink": {"type": "string"},
         "mood": {"type": "string", "enum": ["good", "fine", "meh", "annoyed", "down"]},
+        "beat": {"type": "string"},
     },
-    "required": ["thought", "say", "action", "target", "lookup", "drink", "mood"],
+    "required": ["thought", "say", "action", "target", "lookup", "drink", "mood", "beat"],
+    "additionalProperties": False,
+}
+
+BEATS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "beats": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"name": {"type": "string"}, "beat": {"type": "string"}},
+                "required": ["name", "beat"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["beats"],
     "additionalProperties": False,
 }
 
@@ -198,10 +216,11 @@ class AnthropicLLM:
             messages=[{"role": "user", "content": req.context}],
         )
         data = await self._json(resp, "speak")
-        if not data or not str(data.get("say", "")).strip():
+        if not data or not (str(data.get("say", "")).strip() or str(data.get("beat", "")).strip()):
             return None
         return Utterance(
-            say=data["say"].strip(),
+            say=str(data.get("say", "")).strip(),
+            beat=str(data.get("beat", "")).strip(),
             action=data.get("action", "none"),
             target=data.get("target", ""),
             lookup=data.get("lookup", ""),
@@ -296,6 +315,30 @@ class AnthropicLLM:
             messages=[{"role": "user", "content": f"Person: {who}\nEvent: {event}"}],
         )
         return self._text(resp) if resp else None
+
+    async def beats(self, roster: str, room: str) -> dict[str, list[str]] | None:
+        resp = await self._create(
+            max_tokens=300,
+            thinking={"type": "disabled"},
+            output_config={"effort": "low", "format": {"type": "json_schema", "schema": BEATS_SCHEMA}},
+            system=(
+                "You write small physical actions for guests in a neighborhood taproom, to fill the quiet moments when "
+                "nobody is talking. For each guest listed, give one or two beats that fit that person and the room: "
+                "checking something on the phone, fiddling with a glass or coaster, watching the room, a small habit. "
+                "Each is a single clause with no subject, starting with a verb, under 10 words, mundane and specific "
+                "('turns the coaster over twice', 'reads the chalkboard again'). No speech, no pronouns, no names, no "
+                "final period. Use each guest's name exactly as given."
+            ),
+            messages=[{"role": "user", "content": f"The room: {room}\n\nGuests (name | job | quirk | interest | drink | where):\n{roster}"}],
+        )
+        data = await self._json(resp, "beats") if resp else None
+        if not data:
+            return None
+        out: dict[str, list[str]] = {}
+        for row in data.get("beats", []):
+            if str(row.get("name", "")).strip() and str(row.get("beat", "")).strip():
+                out.setdefault(row["name"].strip(), []).append(row["beat"].strip())
+        return out
 
     async def classify(self, event: str, roster: str) -> dict | None:
         resp = await self._create(

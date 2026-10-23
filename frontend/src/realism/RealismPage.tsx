@@ -181,6 +181,20 @@ export default function RealismPage() {
 
           <div className="rounded-lg border border-[var(--border)] p-4">
             <div className="mb-2 flex items-baseline justify-between text-sm">
+              <span className="font-semibold">Quiet moments</span>
+              <span style={{ color: BAND_COLOR[summary.quiet.band] }} className="font-bold">
+                {summary.quiet.share === null ? "not enough activity yet" : `${summary.quiet.share}% of the room is not talk`}
+              </span>
+            </div>
+            <div className="text-xs text-[var(--muted)]">
+              Share of what happens that is a gesture, a glance, a song or a lull rather than a line ({summary.quiet.actions} actions,{" "}
+              {summary.quiet.speech} lines, {summary.quiet.lulls} lulls). A taproom is mostly not talking, but not entirely silent either.
+              Not part of the overall score.
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[var(--border)] p-4">
+            <div className="mb-2 flex items-baseline justify-between text-sm">
               <span className="font-semibold">Grapevine</span>
               <span style={{ color: BAND_COLOR[summary.gossip.band] }} className="font-bold">
                 {summary.gossip.rate === null ? "not enough rumors yet" : `${summary.gossip.rate}% of rumors had consequences`}

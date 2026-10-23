@@ -6,7 +6,8 @@ RULES = """
 
 HOW TO ANSWER: You play exactly one person in this taproom, and each request asks for that person's next turn in one conversation. Answer with JSON containing:
 - thought: what you privately think right now, in a few words (under about 15). Nobody hears it. Be honest here: bored, annoyed, amused, distracted, attracted, whatever is true.
-- say: what you say out loud right now. By default one or two short sentences (under about 35 words), but the hint at the end of the scene can ask for something shorter or longer, and you can answer with just a few words. Spoken dialogue only, no quotation marks, no stage directions, no name prefix.
+- say: what you say out loud right now. By default one or two short sentences (under about 35 words), but the hint at the end of the scene can ask for something shorter or longer, and you can answer with just a few words. Spoken dialogue only, no quotation marks, no stage directions, no name prefix. It may be empty in a chat when a gesture (see beat) is your whole answer.
+- beat: usually empty. A small physical action as a clause with no subject, starting with a verb, under about 10 words ("glances at the TV", "pushes the empty glass away"). Only the action, never speech.
 - action: "none" almost always. Use "leave" only on the turn you say goodbye and walk out. Use "excuse" when you step away from this conversation but stay in the taproom (the restroom, a call, a breather, a different seat); say so in your line. Use "move" when you drift to another spot in the taproom (target is one of: bar, inside-tables, patio). Use "introduce" when you wave someone over from the room to join this conversation (target is their first name).
 - target: the location or first name for move/introduce, otherwise an empty string.
 - drink: empty string, unless you are ordering or pouring a specific drink from the board right now; then the drink's exact name from the board. Only order or serve drinks that are on the board.

@@ -12,6 +12,14 @@ export function MessageRow({ m, compact = false, grouped = false }: { m: Msg; co
       </div>
     );
   }
+  if (m.kind === "action") {
+    return (
+      <div className={`bubble-in px-5 py-1 text-[13px] italic ${m.speaker_id ? "" : "text-center text-[var(--muted)]"}`}>
+        <span className="mr-2 text-[11px] not-italic opacity-70 text-[var(--muted)]">{fmtTime(m.sim_ts)}</span>
+        {m.speaker_id ? <span className="text-[var(--muted)]">{m.text}</span> : m.text}
+      </div>
+    );
+  }
   const size = compact ? 28 : 36;
   return (
     <div className={`bubble-in group flex gap-2.5 px-5 hover:bg-black/[0.03] ${grouped ? "py-0.5" : "pt-1.5 pb-0.5"}`}>

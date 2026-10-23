@@ -61,6 +61,10 @@ _CUT = ["I think you've had enough for tonight, friend. Let me get you a water."
 _SLOW = ["Sure thing. Maybe a water to go with it?", "Coming up. Want a glass of water alongside?"]
 _WATER_ASK = ["Actually, just a water for me, I think.", "Water, please. I should slow down."]
 _EXCUSE = ["Be right back, I'll be a few minutes.", "Sorry, I need a breather. Back in a bit.", "Excuse me a sec, nature calls."]
+_BEATS = ["glances at the TV", "turns the coaster over", "checks the time", "takes a long sip", "looks around the room",
+          "smiles into the glass", "taps along to the jukebox"]
+_CUT_OFF = ["Oh, hang on, that's my phone, I have to— sorry, one sec—", "Wait, I need to take this, it's the landlord, I'll be—",
+            "Sorry, my sitter's calling, give me a— I'll be right back—"]
 _CLAIMS = [
     "{name} is thinking about quitting their job.",
     "{name} is seeing someone new.",
@@ -149,16 +153,21 @@ class MockLLM:
             about, text = req.rumor
             claim = _distort(text, r) if text else r.choice(_CLAIMS).format(name=about)
             say = f"You know what I heard about {about}? {claim}"
+        beat = r.choice(_BEATS) if req.kind == "chat" and req.last_line and r.random() < 0.1 else ""
+        if req.lull and req.kind == "chat" and not req.is_bartender and r.random() < 0.4:
+            say, beat = "", r.choice(_BEATS)  # a gesture says it
         if req.wants_leave:
             say = "Alright, I should get going. Good talking to you all."
             action = "leave"
+        elif req.cut:
+            say, action = r.choice(_CUT_OFF), "excuse"
         elif req.excuse:
             say, action = r.choice(_EXCUSE), "excuse"
         elif req.kind != "order" and r.random() < 0.04:
             action, target = "move", r.choice(["patio", "inside-tables", "bar"])
         lookup = "who won the Twins game last night" if r.random() < 0.02 else ""
         mood = "annoyed" if req.tension >= 1 else r.choice(["good", "fine", "fine", "meh"])
-        return Utterance(say=say, action=action, target=target, lookup=lookup, drink=drink, mood=mood)
+        return Utterance(say=say, action=action, target=target, lookup=lookup, drink=drink, mood=mood, beat=beat)
 
     async def summarize(self, transcript: str, roster: str) -> dict | None:
         names = [line.split("|")[0].strip() for line in roster.splitlines() if "|" in line]
@@ -192,6 +201,10 @@ class MockLLM:
 
     async def polish(self, who: str, event: str) -> str | None:
         return None  # the template text stands
+
+    async def beats(self, roster: str, room: str) -> dict[str, list[str]] | None:
+        names = [line.split("|")[0].strip() for line in roster.splitlines() if "|" in line]
+        return {n: random.sample(_BEATS, 2) for n in names}
 
     async def classify(self, event: str, roster: str) -> dict | None:
         return None  # the keyword estimate in sim.god is used instead

@@ -6,6 +6,8 @@ the model only voices it, through the hints in speech_hint and bartender_note.
 import random
 from datetime import datetime
 
+from app.sim.beats import pos
+
 TIPSY, DRUNK, WASTED = 0.25, 0.5, 0.75  # buzz at which each tier starts
 CUT_DRINKS = 7  # a bartender cuts off anyone this many in, however they seem
 STRONG_ABV = 6.0  # a drink at this strength adds buzz at the ordinary rate
@@ -124,8 +126,7 @@ def roll_slop(rng: random.Random, p, in_chat: bool) -> str:
 
 
 def slop_text(rng: random.Random, kind: str, p) -> str:
-    pos = "her" if p.pronouns.startswith("she") else "his" if p.pronouns.startswith("he") else "their"
-    return rng.choice(SLOPS[kind]).format(p=p.short, pos=pos, drink=(p.drink or "drink").split(" - ")[0])
+    return rng.choice(SLOPS[kind]).format(p=p.short, pos=pos(p), drink=(p.drink or "drink").split(" - ")[0])
 
 
 # ---------------------------------------------------------------- getting home

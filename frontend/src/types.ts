@@ -30,7 +30,7 @@ export interface Msg {
   thread_id: number | null;
   channel: string;
   speaker_id: string | null;
-  kind: "speech" | "system";
+  kind: "speech" | "system" | "action";
   text: string;
   sim_ts: string;
 }
