@@ -15,7 +15,7 @@ from app.config import settings
 from app.db.models import LifeEvent, Message, NewsItem, Payment, Person, SaleItem, Session, SimState, Thread, get_state, set_state
 from app.llm.usage import usage
 from app.seed.loader import color_for
-from app.sim import beats, bonds, drunk, environment, human, life, newcomers, realism, taste
+from app.sim import beats, bonds, drunk, dynamics, environment, human, life, newcomers, realism, taste
 from app.sim import god as godmode
 from app.sim import groups, menu, sales, seating
 from app.sim.clock import DEFAULT_START, SimClock, is_open, launch_time, open_close
@@ -83,6 +83,7 @@ class Director:
         self.taste_log: list[dict] = []  # switches, suggestions, skipped rounds and rounds bought, for the scorecard
         self.gossip_cred: dict[str, int] = {}  # pid -> how far others can trust what they pass on: see sim.gossip
         self.gossip_log: list[dict] = []  # rumors that reached their subject or got corrected, for the scorecard
+        self.group_log: list[dict] = []  # splits, interruptions, jokes, steers and outsiders, for the scorecard
         self.beat_pool: dict[str, list[str]] = {}  # pid -> model-written idle beats not yet used
         self.beat_calls: list[datetime] = []  # when the batched beats call last ran
         self.beat_busy = False
@@ -131,6 +132,7 @@ class Director:
             self.taste_log = await get_state(s, "taste_log", []) or []
             self.gossip_cred = await get_state(s, "gossip_cred", {}) or {}
             self.gossip_log = await get_state(s, "gossip_log", []) or []
+            self.group_log = await get_state(s, "group_log", []) or []
         for p in self.people.values():
             self.persona_text[p.id] = persona_prompt(p, self.lives.get(p.id, ""))
         await self.social.load()
@@ -991,10 +993,16 @@ class Director:
             return order[t.turns % len(order)] if len(order) > 1 else None
         recent = [s for k, s, _ in t.lines if k == "speech"][-3:]
         weights = []
+        if t.interrupt and recent and recent[-1] == t.interrupt[0] and t.interrupt[1] in t.members:
+            cutter = self.people[t.interrupt[1]]
+            if cutter.present:
+                return cutter  # they talk over whoever just spoke
         for p in members:
-            w = (0.2 + p.talk) * human.speaker_weight(p)
+            w = (0.2 + p.talk) * human.speaker_weight(p) * dynamics.dominance(p)
+            if p.id == t.outsider:
+                w *= 0.5
             if recent and p.id == recent[-1]:
-                w *= 0.12
+                w *= dynamics.floor_keep(p)
             elif p.id in recent:
                 w *= 0.6
             if p.wants_leave:
@@ -1034,6 +1042,7 @@ class Director:
                     t.cut.add(p.id)  # the call comes in mid-sentence
             elif p.id not in t.cut and beats.cut_due(self.rng, t.turns):
                 t.cut.add(p.id)
+        self.roll_dynamics(t, p)
         req = agent_mod.build_turn(self, t, p, wind_down)
         bus.publish({"type": "typing", "thread_id": t.id, "person_id": p.id, "on": True})
         began = time.monotonic()
@@ -1075,6 +1084,100 @@ class Director:
         if utt.lookup:
             self.spawn(self.lookup_task(p, utt.lookup, t))
         await self.apply_action(t, p, utt, forced_leave=p.id in t.nudge_leave)
+        await self.after_turn(t, p, utt)
+
+    # ---------------------------------------------------------------- group dynamics
+
+    def log_group(self, kind: str, pids: list[str], **extra) -> None:
+        self.group_log.append({"kind": kind, "pids": pids, "day": self.clock.now().strftime("%Y-%m-%d"), **extra})
+        del self.group_log[:-dynamics.LOG_KEEP]
+
+    def table_of(self, t: ThreadState) -> list[PersonState]:
+        return [self.people[m] for m in t.members if self.people[m].present and not self.people[m].is_bartender]
+
+    def roll_dynamics(self, t: ThreadState, p: PersonState) -> None:
+        """Before a guest's turn in a chat: who is on the outside, and whether this turn they get talked over, joke or change the subject."""
+        if t.kind != "chat" or p.is_bartender:
+            return
+        rng = random.Random(t.id * 7919 + t.turns)
+        table = self.table_of(t)
+        if t.interrupt and p.id not in t.interrupt:
+            t.interrupt = None  # the moment passed
+        t.joking = ""
+        old, t.outsider = t.outsider, dynamics.outsider([g.id for g in table], self.social.rel) or ""
+        if t.outsider and t.outsider != old:
+            self.log_group("outsider", [t.outsider])
+        if t.outsider == p.id and p.id not in t.excuse and dynamics.outsider_leaves(rng, t.turns):
+            t.excuse[p.id] = dynamics.OUTSIDER_EXCUSE_TEXT
+        if not t.lines or t.turns < 2 or t.interrupt or p.id in t.cut or p.id in t.excuse or p.wants_leave:
+            return
+        others = [g for g in table if g.id != p.id]
+        if cutter := dynamics.interrupter(rng, p, others):
+            t.interrupt = (p.id, cutter.id)
+            return
+        recent = [x for k, _, x in t.lines if k == "speech"][-3:]
+        touchy = [q.short for q in self.patrons() if q.present and q.id not in t.members
+                  and self.social.rel(p.id, q.id).bond in ("falling_out", "ex")]
+        gossiped = any(p.short.lower() in x.lower() and realism.topic_of(x) == "gossip" for x in recent)
+        if (go := dynamics.steer_due(rng, p, recent, touchy, gossiped, t.turns - t.last_topic_turn)):
+            t.steer[p.id] = go[1]
+            t.last_topic_turn = t.turns
+            self.log_group("steer", [p.id], why=go[0])
+        elif dynamics.joke_due(rng, p):
+            t.joking = p.id
+
+    async def after_turn(self, t: ThreadState, p: PersonState, utt) -> None:
+        """After a guest's line in a chat: who talked over whom, how a joke went down, the table's mood, and pairs splitting off."""
+        if t.kind != "chat" or p.is_bartender or t.closing or t.id not in self.threads:
+            return
+        rng = random.Random(t.id * 7919 + t.turns + 1)
+        if t.interrupt and p.id == t.interrupt[0]:
+            if utt.say and t.interrupt[1] in t.members:
+                self.log_group("interrupt", list(t.interrupt))
+            else:
+                t.interrupt = None
+        elif t.interrupt and p.id == t.interrupt[1]:
+            t.interrupt = None
+        table = self.table_of(t)
+        if t.joking == p.id:
+            t.joking = ""
+            if utt.say:
+                await self.land_joke(t, p, [g for g in table if g.id != p.id], rng)
+        t.vibe = dynamics.vibe(table)
+        for g in table:
+            dynamics.catch(g, t.vibe)
+        if p.id == t.outsider:
+            p.battery = max(0.0, p.battery - 0.02)  # sitting on the outside is tiring
+        if p.id in t.members and not t.on_event and t.turns >= dynamics.SPLINTER_MIN_TURNS:
+            if pair := dynamics.splinter(rng, table, self.social.rel):
+                await self.split_thread(t, pair)
+
+    async def land_joke(self, t: ThreadState, teller: PersonState, listeners: list[PersonState], rng: random.Random) -> None:
+        """Each listener takes a joke their own way; one action line says how it went round the table."""
+        if not listeners:
+            return
+        results = {g.id: dynamics.reception(rng, teller, g, self.social.rel(g.id, teller.id)) for g in listeners}
+        t.joke = {"teller": teller.id, "by": dict(results)}
+        names = {g.id: g.short for g in listeners}
+        await self.post(t.channel, dynamics.reaction(teller.short, results, names), None, "action", t)
+        v = dynamics.verdict(results)
+        human.nudge_mood(teller, dynamics.teller_mood(v))
+        for g in listeners:
+            human.nudge_mood(g, dynamics.joke_mood(results[g.id]))
+            if results[g.id] == "stung":
+                await self.social.apply_delta(teller.id, g.id, 0, -3, "a joke that stung")
+        self.log_group("joke", [teller.id, *results], result=v)
+
+    async def split_thread(self, t: ThreadState, pair: tuple[str, str]) -> None:
+        """Two people at a big table drift into a conversation of their own, at the same table."""
+        a, b = (self.people[x] for x in pair)
+        for x in (a, b):
+            self._release(t, x.id)
+        t.max_turns += 3
+        await self.post(t.channel, f"{a.short} and {b.short} drift into a conversation of their own.", kind="system", thread=t)
+        side = await self.open_thread(t.channel, "chat", [a.id, b.id], self.rng.randint(6, 12))
+        side.split_from = t.id
+        self.log_group("split", [a.id, b.id], size=len(t.members))
 
     # ---------------------------------------------------------------- God Mode escalation
 
@@ -2002,6 +2105,7 @@ class Director:
             await set_state(s, "taste_log", self.taste_log)
             await set_state(s, "gossip_cred", self.gossip_cred)
             await set_state(s, "gossip_log", self.gossip_log)
+            await set_state(s, "group_log", self.group_log)
             await set_state(s, "clock", {
                 "sim_now": self.clock.now().isoformat(), "speed": self.clock.speed,
                 "crowd": self.crowd, "crowd_days": self.crowd_days,

@@ -144,6 +144,13 @@ class ThreadState:
     take_rec: bool = False  # the guest goes along with the suggestion
     fallback: str = ""  # what they order instead if they turn it down
     treat: bool = False  # the guest is buying this order for their friends in `party`
+    vibe: float = 0.0  # the table's mood: see dynamics.vibe
+    outsider: str = ""  # whoever is on the outside of this chat right now
+    interrupt: tuple[str, str] | None = None  # (talked over, talking over): the second speaks right after the first
+    joking: str = ""  # who is told to make a joke this turn
+    joke: dict | None = None  # the last joke: {"teller": id, "by": {listener id: landed | flat | stung}}
+    steer: dict[str, str] = field(default_factory=dict)  # who means to change the subject this turn, and to what
+    split_from: int | None = None  # the bigger chat this one broke away from
 
 
 @dataclass

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from app.agents.prompts import persona_prompt
 from app.config import settings
 from app.llm.types import TurnRequest, Utterance
-from app.sim import beats, bonds, drunk, environment, gossip, human, life, taste
+from app.sim import beats, bonds, drunk, dynamics, environment, gossip, human, life, taste
 from app.sim import god as godmode
 from app.sim import sales
 from app.sim.social import RECALL_MAX, RECALL_QUICK, rel_time, relation_label
@@ -226,6 +226,38 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
             p.overshare_pending = False
             p.overshared_with |= {o.id for o in guests}
             p.slops.append("said something you shouldn't have")
+    interrupted, interrupting, joke, laughed, steer, outsider, vibe = False, "", False, None, "", False, ""
+    if t.kind == "chat" and not p.is_bartender:
+        table = [o for o in others if not o.is_bartender]
+        if t.lines and table:
+            vibe = dynamics.vibe_word(t.vibe, t.tension)
+            if vibe != "easy":
+                hints.append(dynamics.VIBE_HINT.format(word=vibe))
+        if t.split_from is not None and not t.lines:
+            hints.append(dynamics.SPLIT_HINT)
+        if t.outsider == p.id:
+            outsider = True
+            hints.append(dynamics.OUTSIDER_HINT)
+        if t.interrupt and p.id == t.interrupt[0] and t.interrupt[1] in d.people:
+            interrupted = True
+            hints.append(dynamics.INTERRUPTED_HINT.format(name=d.people[t.interrupt[1]].short))
+        elif t.interrupt and p.id == t.interrupt[1] and t.interrupt[0] in d.people:
+            interrupting = d.people[t.interrupt[0]].short
+            hints.append(dynamics.INTERRUPTING_HINT.format(name=interrupting))
+        if t.joking == p.id:
+            joke = True
+            hints.append(dynamics.JOKE_HINT)
+        heard = ((t.joke or {}).get("by") or {}).pop(p.id, "")
+        if heard and (t.joke or {}).get("teller") in d.people:
+            laughed = heard == "landed"
+            hints.append({"landed": dynamics.LANDED_HINT, "flat": dynamics.FLAT_HINT, "stung": dynamics.STUNG_HINT}[heard]
+                         .format(name=d.people[t.joke["teller"]].short))
+        if topic := t.steer.pop(p.id, ""):
+            steer = topic
+            hints.append(dynamics.STEER_HINT.format(topic=topic))
+        speakers = [s for k, s, _ in t.lines if k == "speech"]
+        if (hog := dynamics.hogging(speakers)) and hog != p.id and hog in d.people and len(table) >= 2 and not t.interrupt:
+            hints.append(dynamics.HOG_HINT.format(name=d.people[hog].short))
     lull, cut = False, False
     if t.kind == "chat":
         if t.lull:
@@ -275,6 +307,7 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
         want=want, ask_rec=ask_rec, suggest=suggest, treat=", ".join(d.people[m].short for m in t.party if m in d.people) if t.treat and not p.is_bartender else "",
         excuse=t.excuse.get(p.id, ""),
         avoid=avoid, lull=lull, cut=cut,
+        joke=joke, laughed=laughed, interrupted=interrupted, interrupting=interrupting, steer=steer, outsider=outsider, vibe=vibe,
         life=(life.freshest(mine, now, 1)[0].text if life.freshest(mine, now, 1) else ""),
         rumor=_rumor_for_mock(rumors, names, around, [o.short for o in others if not o.is_bartender], rng)
         if t.kind == "chat" and not p.is_bartender else None,

@@ -40,6 +40,13 @@ class TurnRequest:
     rumor: tuple[str, str] | None = None  # (who it's about, what was said): a rumor the mock may repeat
     lull: bool = False  # the talk just stalled (the mock may answer with a gesture alone)
     cut: bool = False  # break off mid-sentence and step away for a call
+    joke: bool = False  # make a joke or tease someone
+    laughed: bool | None = None  # the last joke landed (True) or didn't (False) with this person; None if there wasn't one
+    interrupted: bool = False  # this line gets talked over: the mock trails off with a dash
+    interrupting: str = ""  # talk over this person
+    steer: str = ""  # change the subject on purpose to this
+    outsider: bool = False  # on the outside of this chat
+    vibe: str = ""  # the table's mood: lively | easy | flat | tense
 
 
 @dataclass

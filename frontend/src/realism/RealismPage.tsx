@@ -210,6 +210,22 @@ export default function RealismPage() {
 
           <div className="rounded-lg border border-[var(--border)] p-4">
             <div className="mb-2 flex items-baseline justify-between text-sm">
+              <span className="font-semibold">Group dynamics</span>
+              <span style={{ color: BAND_COLOR[summary.groups.floor.band] }} className="font-bold">
+                {summary.groups.floor.share === null ? "not enough group chats yet" : `top talker holds ${summary.groups.floor.share}% of a chat`}
+              </span>
+            </div>
+            <div className="text-xs text-[var(--muted)]">
+              The top speaker's average share of the lines in chats of three or more ({summary.groups.floor.chats} chats). A perfectly even
+              rota and a monologue are both off. {summary.groups.splits} pairs split off, {summary.groups.interrupts} interruptions,{" "}
+              {summary.groups.jokes.landed} jokes landed, {summary.groups.jokes.mixed} landed with some, {summary.groups.jokes.flat} fell flat,{" "}
+              {summary.groups.steers} deliberate changes of subject, {summary.groups.outsiders} people left on the outside. Not part of the
+              overall score.
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[var(--border)] p-4">
+            <div className="mb-2 flex items-baseline justify-between text-sm">
               <span className="font-semibold">Grapevine</span>
               <span style={{ color: BAND_COLOR[summary.gossip.band] }} className="font-bold">
                 {summary.gossip.rate === null ? "not enough rumors yet" : `${summary.gossip.rate}% of rumors had consequences`}

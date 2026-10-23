@@ -3,7 +3,7 @@ import re
 import zlib
 
 from app.llm.types import TurnRequest, Utterance
-from app.sim import menu
+from app.sim import dynamics, menu
 from app.sim.realism import norm
 
 _MOMENTS = ["none", "fight", "flirt", "apology", "confided", "advice", "teasing"]
@@ -65,6 +65,16 @@ _BEATS = ["glances at the TV", "turns the coaster over", "checks the time", "tak
           "smiles into the glass", "taps along to the jukebox"]
 _CUT_OFF = ["Oh, hang on, that's my phone, I have to— sorry, one sec—", "Wait, I need to take this, it's the landlord, I'll be—",
             "Sorry, my sitter's calling, give me a— I'll be right back—"]
+_JOKES = [
+    "I told my landlord the faucet drips like a bad IPA: all hops, no body.",
+    "Nobody at this table has ever won an argument about the Vikings, and yet here we are.",
+    "I'd say I'm on a diet, but the diet is mostly this beer.",
+]
+_LAUGHS = ["Ha! Okay, that's good.", "Oh, come on, that got me.", "Ha! Stop it."]
+_FLAT = ["...Sure.", "Mm. Right.", "Huh. Okay."]
+_CUT_IN = ["Wait, hang on {name}, I've got to say something about that—", "Sorry, {name}, but no, listen—", "Oh, that reminds me, {name}, you won't believe—"]
+_STEER = ["Anyway, enough of that. Anyone been into {interest} lately?", "Okay, new subject: {interest}. Go.", "Can we talk about {interest} instead?"]
+_OUTSIDER = ["Oh. Yeah. I don't really know... I'll just listen.", "Ha, I'm lost, but go on.", "Mm, I wasn't there for that one."]
 _CLAIMS = [
     "{name} is thinking about quitting their job.",
     "{name} is seeing someone new.",
@@ -175,6 +185,19 @@ class MockLLM:
             about, text = req.rumor
             claim = _distort(text, r) if text else r.choice(_CLAIMS).format(name=about)
             say = f"You know what I heard about {about}? {claim}"
+        if req.kind == "chat" and req.last_line and not req.is_bartender:
+            if req.interrupting:
+                say = r.choice(_CUT_IN).format(name=req.interrupting)
+            elif req.joke:
+                say = r.choice(_JOKES)
+            elif req.steer:
+                say = r.choice(_STEER).format(interest=req.steer)
+            elif req.laughed is not None and r.random() < 0.7:
+                say = r.choice(_LAUGHS if req.laughed else _FLAT)
+            elif req.outsider and r.random() < 0.6:
+                say = r.choice(_OUTSIDER)
+            if req.interrupted and say:
+                say = dynamics.trail_off(say)
         beat = r.choice(_BEATS) if req.kind == "chat" and req.last_line and r.random() < 0.1 else ""
         if req.lull and req.kind == "chat" and not req.is_bartender and r.random() < 0.4:
             say, beat = "", r.choice(_BEATS)  # a gesture says it

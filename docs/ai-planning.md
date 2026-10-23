@@ -28,7 +28,7 @@ The simulation already has moods, buzz, memory, relationships and gossip. The re
 
 7. **Taste and habits that evolve.** Give each patron favorite drinks that shift. A patron tries something new on a bartender's recommendation, orders the same thing every time, or gets tired of a beer. Add budgets, so some people skip a round when money is tight and others buy rounds for friends. This makes the sales data and the bartender interactions more believable.
 
-8. **Group dynamics inside conversations.** Conversations are currently a set of turns. Add:
+8. **Group dynamics inside conversations (done).** Conversations are currently a set of turns. Add:
    - Cliques and subgroups that split off.
    - A third wheel who goes quiet.
    - Someone who dominates or interrupts.
