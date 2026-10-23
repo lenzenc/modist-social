@@ -65,6 +65,7 @@ Each person has a Big Five personality profile, a job, a life situation (a secon
 During a visit each person carries a few moving numbers (`backend/app/sim/human.py`):
 - **Mood** drifts with how chats go, and settles back over time.
 - **Buzz** builds with each drink and wears off. A few in, people get looser and chattier, and may repeat a story.
+- **Drinking has consequences.** Stronger beers hit harder. Past a few drinks people get properly drunk (louder, repeating themselves, slurring) and the bartender slows them down, offers a water, and cuts off anyone who is clearly done (or seven in). Some switch to water on their own, and water helps them sober up. Drunk guests occasionally drop a glass, spill, or blurt out something personal. They go home in a rideshare, or with a sober friend from their party. The next day they remember it (and may owe someone an apology), start the next visit a little rough and drink less. All of it is rules in `backend/app/sim/drunk.py`; the model only voices it. The realism scorecard has a Last call card showing whether drunk nights change anything.
 - **Social battery** drains as they talk (faster for the reserved) and recovers when they are left alone.
 - **Needs** such as the restroom, a phone call, some air, or a bite from the food truck.
 

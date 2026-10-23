@@ -84,6 +84,12 @@ class PersonState:
     first_visit: bool = False  # a walk-in on their first ever visit
     party: int | None = None  # the party they walked in with, while it is still here
     waiting: bool = False  # in line for a bartender
+    peak_buzz: float = 0.0  # the highest buzz this visit, kept for the morning after
+    cut_off: bool = False  # the bartender has cut them off tonight
+    on_water_until: datetime | None = None  # switched to water until then; buzz wears off faster meanwhile
+    slops: list[str] = field(default_factory=list)  # embarrassing things that happened this visit
+    overshare_pending: bool = False  # will blurt something out on their next line
+    overshared_with: set[str] = field(default_factory=set)  # who heard it
 
     @property
     def seated(self) -> bool:

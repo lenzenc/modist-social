@@ -167,6 +167,20 @@ export default function RealismPage() {
 
           <div className="rounded-lg border border-[var(--border)] p-4">
             <div className="mb-2 flex items-baseline justify-between text-sm">
+              <span className="font-semibold">Last call</span>
+              <span style={{ color: BAND_COLOR[summary.drunk.band] }} className="font-bold">
+                {summary.drunk.rate === null ? "not enough drunk visits yet" : `${summary.drunk.rate}% had consequences`}
+              </span>
+            </div>
+            <div className="text-xs text-[var(--muted)]">
+              How often a drunk night changes anything: a cut-off, a mess, a switch to water or a ride home ({summary.drunk.visits} drunk
+              visits, {summary.drunk.cut_offs} cut off, {summary.drunk.messes} messes, {summary.drunk.rides} rides). Most should; if the
+              drunk keep drinking and nothing happens, the room isn't taking it seriously. Not part of the overall score.
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[var(--border)] p-4">
+            <div className="mb-2 flex items-baseline justify-between text-sm">
               <span className="font-semibold">Relationships</span>
               <span style={{ color: BAND_COLOR[summary.bonds.band] }} className="font-bold">
                 {summary.bonds.rate === null ? "not enough visits yet" : `${summary.bonds.changes} changes`}

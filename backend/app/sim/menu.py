@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 DRINKS_FILE = Path(__file__).parent.parent / "seed" / "drinks.yaml"
+WATER = "Water"  # free, always available, and not in drinks.yaml so it never turns up as a pick or a happy-hour special
 
 # Display order and the style keywords that put a drink in each section (first match wins).
 SECTIONS = [
@@ -40,7 +41,16 @@ def match(text: str) -> str | None:
     if t.strip() in by_norm:
         return by_norm[t.strip()]
     hits = [n for n in by_norm if f" {n} " in t]
-    return by_norm[max(hits, key=len)] if hits else None
+    if hits:
+        return by_norm[max(hits, key=len)]
+    return WATER if " water " in t else None
+
+
+def abv(name: str) -> float | None:
+    """A drink's strength; water is 0 and an unlisted or unstated one is None."""
+    if name == WATER:
+        return 0.0
+    return next((d.get("abv") for d in drinks() if d["name"] == name), None)
 
 
 def _section(d: dict) -> int:
@@ -61,4 +71,5 @@ def render_tap_list() -> str:
         for d in group:
             abv = f" - {d['abv']:g}%" if d.get("abv") else ""
             lines.append(f"- {d['name']} - {d['style']}{abv} - {d['note']}")
+    lines.append(f"Always free: {WATER}")
     return "\n".join(lines)

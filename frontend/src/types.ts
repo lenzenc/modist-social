@@ -21,6 +21,8 @@ export interface Presence {
   stool?: number | null;
   table?: number | null;
   party?: number | null;
+  /** sober | tipsy | drunk | wasted */
+  tier?: string;
 }
 
 export interface Msg {
@@ -128,7 +130,7 @@ export interface Profile extends Person {
   bond_changes: { with: string; from: string; to: string; why: string; sim_ts: string }[];
   memories: { sim_ts: string; text: string; about: string[]; importance: number; kind: string }[];
   /** How they feel right now; null when they're not in the taproom. */
-  state: { reason: string; mood: number; buzz: number; battery: number; need: string; thought: string; drinks: number } | null;
+  state: { reason: string; mood: number; buzz: number; battery: number; need: string; thought: string; drinks: number; tier: string; cut_off: boolean; on_water: boolean; slops: string[] } | null;
   lately: string;
   visits: number;
   /** Things that happened to them away from the taproom, newest first. */

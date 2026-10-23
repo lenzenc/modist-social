@@ -5,6 +5,8 @@ Pure functions over a persona dict and a PersonState, in the style of god.py, so
 import random
 from datetime import datetime, timedelta
 
+from app.sim import drunk
+
 MOODS = {"good": 0.6, "fine": 0.1, "meh": -0.2, "annoyed": -0.5, "down": -0.7}
 MOOD_TAGS = tuple(MOODS)
 NEEDS = {
@@ -112,13 +114,15 @@ def body(persona: dict) -> float:
     return 0.9 + int(persona.get("age", 30)) / 300
 
 
-def add_drink(buzz: float, persona: dict) -> float:
-    return min(1.0, buzz + 0.18 * body(persona))
+def add_drink(buzz: float, persona: dict, strength: float = 1.0) -> float:
+    """`strength` is how hard the drink hits against an ordinary beer: see drunk.strength."""
+    return min(1.0, buzz + 0.18 * body(persona) * strength)
 
 
-def tick(p, dt_min: float) -> None:
-    """Passive change while time passes: buzz wears off, mood settles, and a free person recovers."""
-    p.buzz = max(0.0, p.buzz - BUZZ_DECAY_PER_HOUR * dt_min / 60)
+def tick(p, dt_min: float, decay: float = 1.0) -> None:
+    """Passive change while time passes: buzz wears off (faster on water), mood settles, and a free person recovers."""
+    p.buzz = max(0.0, p.buzz - BUZZ_DECAY_PER_HOUR * decay * dt_min / 60)
+    p.peak_buzz = max(p.peak_buzz, p.buzz)
     p.mood += (0.0 - p.mood) * min(1.0, dt_min / 180)
     if p.thread_id is None:
         p.battery = min(1.0, p.battery + RECOVER_PER_HOUR * dt_min / 60)
@@ -262,7 +266,7 @@ def right_now(p, now: datetime, room: str = "") -> str:
     parts = ["your first time at this taproom" if p.first_visit else "", REASON_TEXT.get(p.reason, "")]
     if p.drinks:
         n = f"drink number {p.drinks}"
-        parts.append(n + (", feeling it a little" if 0.25 <= p.buzz < 0.6 else ", feeling it" if p.buzz >= 0.6 else ""))
+        parts.append(n + {"tipsy": ", feeling it a little", "drunk": ", properly drunk", "wasted": ", very drunk"}.get(drunk.tier(p.buzz), ""))
     if p.battery < 0.45:
         parts.append("starting to tire of talking" if p.battery >= LOW_BATTERY else "socially drained")
     if m := mood_word(p.mood):
@@ -271,9 +275,3 @@ def right_now(p, now: datetime, room: str = "") -> str:
         parts.append(f"you'll need to {NEEDS[p.need]} soon")
     parts = [x for x in parts if x]
     return ("Right now: " + " · ".join(parts) + ".") if parts else ""
-
-
-def buzz_hint(buzz: float) -> str:
-    if buzz >= 0.4:
-        return "You've had a few: you're looser, chattier and more candid than usual (never slurring)."
-    return ""

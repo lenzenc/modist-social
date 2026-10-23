@@ -49,6 +49,7 @@ export function People() {
 function Figure({ id, target, sit, start }: { id: string; target: Vec2; sit: boolean; start?: Vec2 }) {
   const person = useStore((s) => s.people[id]);
   const drink = useStore((s) => s.presence[id]?.drink);
+  const tier = useStore((s) => s.presence[id]?.tier);
   const active = useStore((s) => s.profileId === id || (s.openThread != null && s.presence[id]?.thread_id === s.openThread));
   const openProfile = useStore((s) => s.openProfile);
   const ref = useRef<Group>(null);
@@ -90,7 +91,13 @@ function Figure({ id, target, sit, start }: { id: string; target: Vec2; sit: boo
         {drink && (
           <mesh position={[0.34, 0.75, 0.15]}>
             <cylinderGeometry args={[0.09, 0.07, 0.22, 10]} />
-            <meshStandardMaterial color="#e0a526" />
+            <meshStandardMaterial color={drink === "Water" ? "#9fd3ee" : "#e0a526"} />
+          </mesh>
+        )}
+        {(tier === "drunk" || tier === "wasted") && (
+          <mesh position={[0, 1.25, 0]}>
+            <sphereGeometry args={[0.07, 8, 8]} />
+            <meshStandardMaterial color={tier === "wasted" ? "#d9534f" : "#e0a526"} emissive={tier === "wasted" ? "#d9534f" : "#e0a526"} />
           </mesh>
         )}
       </group>

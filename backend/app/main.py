@@ -17,7 +17,7 @@ from app.realism_api import router as realism_router
 from app.sales_api import router as sales_router
 from app.seed.loader import seed_if_empty
 from app.sim import god as godmode
-from app.sim import life
+from app.sim import drunk, life
 from app.sim.director import Director
 from app.sim.state import CHANNEL_DESC, CHANNELS
 
@@ -165,7 +165,8 @@ async def person(pid: str):
     } for m in reversed(social.memories.get(pid, [])[-40:])]
     state = {
         "reason": p.reason, "mood": round(p.mood, 2), "buzz": round(p.buzz, 2), "battery": round(p.battery, 2),
-        "need": p.need, "thought": p.thought, "drinks": p.drinks,
+        "need": p.need, "thought": p.thought, "drinks": p.drinks, "tier": drunk.tier(p.buzz), "cut_off": p.cut_off,
+        "on_water": p.on_water_until is not None and director.clock.now() < p.on_water_until, "slops": p.slops,
     } if p.present and not p.is_bartender else None
     async with Session() as s:
         changes = (await s.scalars(select(BondChange).where(or_(BondChange.a_id == pid, BondChange.b_id == pid))

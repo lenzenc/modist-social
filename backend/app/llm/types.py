@@ -27,6 +27,9 @@ class TurnRequest:
     mood: float = 0.0
     buzz: float = 0.0
     battery: float = 1.0
+    drunk: str = ""  # sober | tipsy | drunk | wasted
+    serve: str = ""  # in an order: how the bartender treats the guest (pour | slow | cut)
+    water: bool = False  # the guest means to ask for water
     excuse: str = ""  # why this person should bow out of the chat this turn
     avoid: list[str] = field(default_factory=list)  # worn-out phrases and openers; the mock steers around them
     life: str = ""  # the freshest thing on this person's mind from off-screen, for the mock to bring up

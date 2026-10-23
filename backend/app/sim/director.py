@@ -15,7 +15,7 @@ from app.config import settings
 from app.db.models import LifeEvent, Message, NewsItem, Payment, Person, SaleItem, Session, SimState, Thread, get_state, set_state
 from app.llm.usage import usage
 from app.seed.loader import color_for
-from app.sim import bonds, environment, human, life, newcomers, realism
+from app.sim import bonds, drunk, environment, human, life, newcomers, realism
 from app.sim import god as godmode
 from app.sim import groups, menu, sales, seating
 from app.sim.clock import DEFAULT_START, SimClock, is_open, launch_time, open_close
@@ -77,6 +77,8 @@ class Director:
         self.life: dict[str, list[life.LifeEventRec]] = {}  # pid -> off-screen events, active or recent
         self.life_day = ""  # the last sim day events were rolled for
         self.romance: dict[str, int] = {}  # sim day -> crushes and couples formed that day
+        self.hangovers: dict[str, dict] = {}  # pid -> how their last drunk night went: see drunk.record
+        self.drunk_log: list[dict] = []  # every drunk visit lately, for the scorecard
         self.generating = False  # a newcomer is being made right now
         self.parties: dict[int, PartyState] = {}  # parties holding tables right now
         self._party_seq = 0
@@ -113,6 +115,8 @@ class Director:
             self.visits = await get_state(s, "visits", {}) or {}
             self.lives = await get_state(s, "lives", {}) or {}
             self.life_day = (await get_state(s, "life_day", {}) or {}).get("day", "")
+            self.hangovers = await get_state(s, "hangovers", {}) or {}
+            self.drunk_log = await get_state(s, "drunk_log", []) or []
         for p in self.people.values():
             self.persona_text[p.id] = persona_prompt(p, self.lives.get(p.id, ""))
         await self.social.load()
@@ -167,7 +171,19 @@ class Director:
                 await self.social.add_memory(p.id, now, life.memory_text(rec), [], life.IMPORTANCE.get(rec.cat, 5))
                 self.spawn(self.polish_event(p, rec))
         await self.bond_day(now, day)
+        await self.morning_after(now, day)
         await self.save_clock()
+
+    async def morning_after(self, now: datetime, day: str) -> None:
+        """Whoever overdid it last night remembers it today, and may owe someone an apology."""
+        names = {pid: q.short for pid, q in self.people.items()}
+        for pid, h in list(self.hangovers.items()):
+            if h["written"] or h["day"] >= day or pid not in self.people:
+                continue
+            h["written"] = True
+            await self.social.add_memory(pid, now, drunk.regret_text(h), list(h["with"]), drunk.MEMORY_IMPORTANCE)
+            for text, about in drunk.regret_followups(h, names):
+                await self.social.add_memory(pid, now, text, about, 6, kind="followup")
 
     def romance_ok(self, now: datetime) -> bool:
         return self.romance.get(now.strftime("%Y-%m-%d"), 0) < bonds.ROMANCE_PER_DAY
@@ -312,7 +328,7 @@ class Director:
     def presence(self) -> list[dict]:
         return [
             {"id": p.id, "location": p.location, "thread_id": p.thread_id, "seated": p.seated, "drink": p.drink,
-             "stool": p.stool, "table": p.table, "party": p.party, "waiting": p.waiting}
+             "stool": p.stool, "table": p.table, "party": p.party, "waiting": p.waiting, "tier": drunk.tier(p.buzz)}
             for p in self.people.values() if p.present
         ]
 
@@ -552,7 +568,8 @@ class Director:
             p.next_drink_at = None
             return
         left = ((p.leave_at or now + timedelta(minutes=60)) - now).total_seconds() / 60
-        p.next_drink_at = now + timedelta(minutes=max(12.0, left / (p.drink_goal - p.drinks + 1) * self.rng.uniform(0.7, 1.3)))
+        wait = max(12.0, left / (p.drink_goal - p.drinks + 1) * self.rng.uniform(0.7, 1.3))
+        p.next_drink_at = now + timedelta(minutes=wait * (drunk.SLOW_WAIT if drunk.service(p) != "pour" else 1.0))
 
     def wants_round(self, p: PersonState, now: datetime) -> bool:
         if not p.present or p.next_drink_at is None or now < p.next_drink_at or p.drinks >= p.drink_goal or p.wants_leave:
@@ -579,7 +596,11 @@ class Director:
             return
         now = self.clock.now()
         if t.order_drink and (t.ordered or not t.again):
-            await self.charge(guest, t.order_drink, bt, t)
+            drink = t.order_drink
+            if drink != menu.WATER and drunk.service(guest) == "cut":
+                await self.cut_off(guest, bt, t)
+                drink = menu.WATER
+            await self.charge(guest, drink, bt, t)
             for pid in t.party:  # the rest of the party's first round rides on the leader's order
                 q = self.people[pid]
                 if q.present and q.drinks == 0:
@@ -595,7 +616,29 @@ class Director:
             if q.present and q.drinks == 0 and q.next_drink_at is None:
                 q.next_drink_at = now + timedelta(minutes=5)
 
+    async def cut_off(self, p: PersonState, bartender_id: str | None, t: ThreadState) -> None:
+        """The bartender stops serving them: no more rounds, water instead, and they head home before long."""
+        now = self.clock.now()
+        p.cut_off, p.drink_goal, p.next_drink_at = True, p.drinks, None
+        p.leave_at = min(p.leave_at or now + timedelta(hours=1), now + timedelta(minutes=self.rng.uniform(*drunk.CUT_LEAVE_MIN)))
+        human.nudge_mood(p, -0.15)
+        who = self.people[bartender_id].short if bartender_id else "The bartender"
+        await self.post(t.channel, f"🚫 {who} cuts {p.short} off.", kind="system", thread=t)
+
+    async def serve_water(self, p: PersonState, t: ThreadState) -> None:
+        """A free glass of water: no sale, but it counts as one of their planned rounds and helps them sober up."""
+        now = self.clock.now()
+        p.drink, p.on_water_until = menu.WATER, now + timedelta(minutes=self.rng.uniform(*drunk.WATER_MIN))
+        if p.drinks:
+            p.drink_goal = max(p.drinks, p.drink_goal - 1)
+        self.schedule_next_drink(p, now)
+        await self.post(t.channel, f"{p.short} gets a water.", kind="system", thread=t)
+        self.publish_presence()
+
     async def charge(self, p: PersonState, drink: str, bartender_id: str | None, t: ThreadState) -> None:
+        if drink == menu.WATER:
+            await self.serve_water(p, t)
+            return
         now = self.clock.now()
         list_price, cost, happy = sales.price(drink, now)
         brand, last4 = sales.card_for(p.id)
@@ -618,9 +661,10 @@ class Director:
                 pay.total = pay.subtotal
             await s.commit()
         p.drinks += 1
-        p.buzz = human.add_drink(p.buzz, p.persona)
+        p.buzz = human.add_drink(p.buzz, p.persona, drunk.strength(menu.abv(drink)))
+        p.peak_buzz = max(p.peak_buzz, p.buzz)
         p.drink = drink
-        if p.drinks >= p.drink_goal and self.rng.random() < 0.1:
+        if p.drinks >= p.drink_goal and drunk.tier(p.buzz) in ("sober", "tipsy") and self.rng.random() < 0.1:
             p.drink_goal += 1  # one more for the road
         self.schedule_next_drink(p, now)
         bus.publish({"type": "sale", "payment_id": pay.id, "person_id": p.id, "status": pay.status})
@@ -1010,6 +1054,13 @@ class Director:
         p.arrived_at, p.reason, p.busy_until, p.thought = now, life.reason_override(mine, now) or human.pick_reason(p.persona, self.rng), None, ""
         p.mood = max(-1.0, min(1.0, human.opening_mood(p.persona, self.rng) + life.mood_shift(mine, now)))
         p.buzz, p.battery = 0.0, self.rng.uniform(0.8, 1.0)
+        p.peak_buzz, p.cut_off, p.on_water_until, p.slops, p.overshare_pending, p.overshared_with = 0.0, False, None, [], False, set()
+        h = self.hangovers.get(p.id)
+        if h and h["written"]:  # the morning after: a rough start, and a lighter plan for tonight
+            del self.hangovers[p.id]
+            if (now - datetime.strptime(h["day"], "%Y-%m-%d")).days <= 3:
+                human.nudge_mood(p, -0.15)
+                p.drink_goal = drunk.hangover_goal(p.drink_goal)
         p.need, p.need_at = human.pick_need(self.rng, stay, now, now.weekday() >= 3)
         p.first_visit = bool(p.persona.get("walkin")) and self.visits[p.id]["n"] == 1
         bus.publish({"type": "person", "person": self.person_view(p)})  # keeps visit counts current in open browsers
@@ -1055,12 +1106,25 @@ class Director:
             await self.leave_thread(t, p, f"{p.short} heads out.")
         await self.close_tab(p)
         self.queue = [w for w in self.queue if w.pid != p.id]
+        now = self.clock.now()
+        pt = self.parties.get(p.party) if p.party is not None else None
+        ride = drunk.ride_home(p, [self.people[m] for m in pt.members] if pt else [], self.rng)
+        if rec := drunk.record(p, now.strftime("%Y-%m-%d"), ride[0] if ride else ""):
+            self.hangovers[p.id] = rec
+            self.drunk_log = (self.drunk_log + [dict(rec)])[-drunk.LOG_KEEP:]
         p.waiting = False
         p.present, p.location, p.thread_id, p.wants_leave, p.free_since, p.stool, p.drink = False, None, None, False, None, None, ""
         p.table, p.spot = None, None
         p.return_to, p.next_drink_at = None, None
         self.leave_party(p)
         await self.post("door", f"👋 {p.display} heads out.", kind="system")
+        if ride:
+            if ride[0] == "driver":
+                driver = self.people[ride[1]]
+                driver.leave_at = min(driver.leave_at or now + timedelta(minutes=5), now + timedelta(minutes=5))
+                await self.post("door", f"🚗 {driver.short} drives {p.short} home.", kind="system")
+            else:
+                await self.post("door", f"📱 {p.short} calls a rideshare.", kind="system")
         self.publish_presence()
 
     def leave_party(self, p: PersonState) -> None:
@@ -1173,10 +1237,13 @@ class Director:
             await self.environment_step(now)
         for p in self.patrons():
             if p.present:
-                human.tick(p, dt_min)
+                human.tick(p, dt_min, drunk.decay_mult(p, now))
+        await self.sloppy_step(dt_min)
         for p in self.patrons():
             if not p.present or p.leave_at is None:
                 continue
+            if drunk.tier(p.buzz) == "wasted" and p.thread_id is None:
+                p.leave_at = min(p.leave_at, now + timedelta(minutes=20))  # time to go home
             overdue = now >= p.leave_at + timedelta(minutes=25) or (not is_open(now) and now > close_t + timedelta(minutes=10))
             if now >= p.leave_at and (p.thread_id is None or overdue):
                 await self.depart(p)
@@ -1189,6 +1256,27 @@ class Director:
             prev_s = self._last_social_sim or now
             self._last_social_sim = now
             await self.social_step(now, max((now - prev_s).total_seconds() / 60, 0.0))
+
+    async def sloppy_step(self, dt_min: float) -> None:
+        """The drunk make a mess now and then: a dropped glass, a spill, a secret that slips out."""
+        for p in self.patrons():
+            t = drunk.tier(p.buzz)
+            if not p.present or t not in drunk.SLOP_PER_HOUR or self.rng.random() >= drunk.slop_chance(t, dt_min):
+                continue
+            th = self.threads.get(p.thread_id) if p.thread_id else None
+            kind = drunk.roll_slop(self.rng, p, bool(th and th.kind == "chat"))
+            if kind == "overshare":
+                p.overshare_pending = True
+            elif kind:
+                text = drunk.slop_text(self.rng, kind, p)
+                p.drink = ""
+                p.slops.append("dropped a glass" if kind == "dropped_glass" else "spilled a drink")
+                human.nudge_mood(p, -0.15)
+                for m in (th.members if th else []):
+                    if m != p.id and not self.people[m].is_bartender:
+                        human.nudge_mood(self.people[m], -0.05)
+                await self.post(th.channel if th else p.location, text, kind="system", thread=th)
+                self.publish_presence()
 
     async def environment_step(self, now: datetime) -> None:
         """Things happening in the room itself: the game on the TV, trivia starting."""
@@ -1627,6 +1715,8 @@ class Director:
             await set_state(s, "visits", self.visits)
             await set_state(s, "lives", self.lives)
             await set_state(s, "life_day", {"day": self.life_day})
+            await set_state(s, "hangovers", self.hangovers)
+            await set_state(s, "drunk_log", self.drunk_log)
             await set_state(s, "clock", {
                 "sim_now": self.clock.now().isoformat(), "speed": self.clock.speed,
                 "crowd": self.crowd, "crowd_days": self.crowd_days,

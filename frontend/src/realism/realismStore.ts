@@ -34,6 +34,7 @@ export interface Summary {
     tidy_share?: number;
   };
   people: PersonRow[];
+  drunk: { rate: number | null; band: Band; visits: number; cut_offs: number; messes: number; rides: number };
   life: {
     rate: number | null;
     band: Band;

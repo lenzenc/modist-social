@@ -144,12 +144,13 @@ def test_right_now_line_reflects_state():
     p = _p()
     p.reason = "unwind"
     assert human.right_now(p, NOW) == "Right now: here to unwind after the day."
-    p.drinks, p.buzz, p.battery, p.mood = 3, 0.5, 0.2, -0.3
+    p.drinks, p.buzz, p.battery, p.mood = 3, 0.3, 0.2, -0.3
     p.need, p.need_at = "air", NOW + timedelta(minutes=5)
     line = human.right_now(p, NOW)
     for needle in ("drink number 3", "feeling it a little", "socially drained", "irritable", "step outside"):
         assert needle in line, needle
-    assert human.buzz_hint(0.1) == "" and "looser" in human.buzz_hint(0.5)
+    p.buzz = 0.6
+    assert "properly drunk" in human.right_now(p, NOW)
 
 
 # ---------------------------------------------------------------- memory
@@ -335,7 +336,7 @@ def test_scene_carries_state_room_and_own_lines():
     d.clock = SimClock(start=NOW)
     d.persona_text["p0"] = ""
     p, q = d.people["p0"], d.people["p1"]
-    p.reason, p.drinks, p.buzz = "catch_up", 2, 0.5
+    p.reason, p.drinks, p.buzz = "catch_up", 2, 0.3
     q.arrived_at, q.gap_days = NOW - timedelta(minutes=10), 9
     d.social.rels[("p0", "p1")] = RelState(kind="friend", familiarity=60)
     t = _chat(False)

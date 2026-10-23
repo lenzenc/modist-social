@@ -46,6 +46,19 @@ _LOOSE = [
     "You know what, I love this place. I love you guys. I mean it!",
     "Honestly? Between us? I think everyone's overthinking all of it.",
 ]
+_SLURRED = [
+    "Honeshtly? Thish is the besht beer I've had all week.",
+    "Wait, wait, lishen. I love thish place. Did I tell you that?",
+    "Sho anyway, as I was shaying...",
+]
+_WASTED = [
+    "I'm fine! I'm totally... what were we talking about?",
+    "You guysh are the *besht*. Don't tell anyone I said that.",
+    "Sho my ex, right, and I shhhould not be telling you thish...",
+]
+_CUT = ["I think you've had enough for tonight, friend. Let me get you a water.", "That's your last one, I'm afraid. Water's on me, and let's get you a ride."]
+_SLOW = ["Sure thing. Maybe a water to go with it?", "Coming up. Want a glass of water alongside?"]
+_WATER_ASK = ["Actually, just a water for me, I think.", "Water, please. I should slow down."]
 _EXCUSE = ["Be right back, I'll be a few minutes.", "Sorry, I need a breather. Back in a bit.", "Excuse me a sec, nature calls."]
 _BEERS = menu.names()
 _NEWS = [
@@ -95,6 +108,10 @@ class MockLLM:
             say = f"Can I get a {drink}, please?"
         elif req.kind == "order" and req.is_bartender and not req.last_line:
             say = "Welcome in. What can I get you?"
+        if req.kind == "order" and req.is_bartender and req.serve in ("cut", "slow"):
+            say = r.choice(_CUT if req.serve == "cut" else _SLOW)
+        elif req.kind == "order" and not req.is_bartender and (req.water or req.serve == "cut"):
+            drink, say = "Water", r.choice(_WATER_ASK)
         elif req.event and req.kind == "chat" and req.tension >= 1 and not req.is_bartender and r.random() < 0.7:
             say = r.choice(_HEATED_LINES).format(event=req.event.rstrip(".!"))
         elif req.event and req.kind == "chat" and r.random() < 0.35:
@@ -102,7 +119,9 @@ class MockLLM:
         if req.kind == "chat" and req.last_line and not req.is_bartender:
             if req.mode == "react" or req.battery < 0.3:
                 say = r.choice(_REACTS if req.mode == "react" else _TIRED)
-            elif req.buzz > 0.6 and r.random() < 0.4:
+            elif req.drunk in ("drunk", "wasted") and r.random() < 0.5:
+                say = r.choice(_WASTED if req.drunk == "wasted" else _SLURRED)
+            elif req.buzz > 0.4 and r.random() < 0.4:
                 say = r.choice(_LOOSE)
         if req.wants_leave:
             say = "Alright, I should get going. Good talking to you all."

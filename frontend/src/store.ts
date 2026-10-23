@@ -78,7 +78,7 @@ export const useStore = create<State>((set, get) => ({
   bootstrap: async () => {
     const b = await api<{
       channels: Channel[];
-      people: (Person & { present: boolean; location: string | null; thread_id: number | null; seated?: boolean; drink?: string; stool?: number | null; table?: number | null; party?: number | null })[];
+      people: (Person & { present: boolean; location: string | null; thread_id: number | null; seated?: boolean; drink?: string; tier?: string; stool?: number | null; table?: number | null; party?: number | null })[];
       clock: Clock;
       news: string[];
       stats: Stats;
@@ -87,7 +87,7 @@ export const useStore = create<State>((set, get) => ({
       banner: string;
     }>("/api/bootstrap");
     const presence: Record<string, Presence> = {};
-    for (const p of b.people) if (p.present) presence[p.id] = { id: p.id, location: p.location, thread_id: p.thread_id, seated: p.seated, drink: p.drink, stool: p.stool, table: p.table, party: p.party };
+    for (const p of b.people) if (p.present) presence[p.id] = { id: p.id, location: p.location, thread_id: p.thread_id, seated: p.seated, drink: p.drink, tier: p.tier, stool: p.stool, table: p.table, party: p.party };
     set({
       channels: b.channels,
       people: Object.fromEntries(b.people.map((p) => [p.id, p])),

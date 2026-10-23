@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from app.agents.prompts import persona_prompt
 from app.config import settings
 from app.llm.types import TurnRequest, Utterance
-from app.sim import bonds, environment, human, life
+from app.sim import bonds, drunk, environment, human, life
 from app.sim import god as godmode
 from app.sim import sales
 from app.sim.social import RECALL_MAX, RECALL_QUICK, rel_time, relation_label
@@ -131,6 +131,7 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
 
     hints: list[str] = []
     mode = "normal"
+    serve, water = "", False  # how the bartender is treating the guest in an order, and whether the guest is switching to water
     last_speaker = next((s for k, s, _ in reversed(t.lines) if k == "speech"), None)
     if t.kind == "order":
         guest = p if not p.is_bartender else next((o for o in others if not o.is_bartender), None)
@@ -142,6 +143,8 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
                 hints.append(f"A guest {what}. Greet them (by name if you know them), recommend or pour something from the board that suits them.")
             if guest:
                 hints.append(_register_note(now, guest, d.visits.get(guest.id)))
+                serve = drunk.service(guest)
+                hints.append(drunk.bartender_note(guest, serve))
         elif t.again and t.ask:
             hints.append(f"The bartender is offering another. {_pick_line(p)} If you want one, say so and put its exact board name in drink (even for 'same again'); if you have had enough, politely pass and leave drink empty. {_pay_note(p)}")
         elif not t.lines and t.again:
@@ -150,6 +153,10 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
             hints.append(f"You just {'pulled up a stool at' if t.seated else 'walked up to'} the bar. Order a drink from the board by its exact name ({_pick_line(p)}) and say a word to the bartender. {_pay_note(p)}")
         else:
             hints.append("Respond to the bartender and settle up the order. Keep it brief.")
+        if not p.is_bartender:
+            serve = drunk.service(p)
+            water = serve != "cut" and drunk.wants_water(p, rng)
+            hints.append(drunk.guest_note(p, serve, water))
     elif t.kind == "staff":
         hints.append("You and your coworker are between orders. Talk shop or share something about the customers or your life.")
     elif not t.lines:
@@ -183,12 +190,19 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
         if why := t.excuse.get(p.id):
             hints.append(why + " Set action to excuse.")
         if t.lines:
-            mode = human.length_mode(p, rng, environment.is_loud(guests_in))
+            tipsy_in_room = sum(1 for x in d.people.values() if x.present and not x.is_bartender and drunk.tier(x.buzz) in ("drunk", "wasted"))
+            mode = human.length_mode(p, rng, environment.is_loud(guests_in + tipsy_in_room))
             hints.append(human.MODE_HINT[mode])
             if slip := human.moves(rng, p.buzz):
                 hints.append(slip)
-        if h := human.buzz_hint(p.buzz):
+        if h := drunk.speech_hint(p.buzz):
             hints.append(h)
+        if p.overshare_pending and t.lines:
+            guests = [o for o in others if not o.is_bartender]
+            hints.append(drunk.overshare_hint([o.short for o in guests]))
+            p.overshare_pending = False
+            p.overshared_with |= {o.id for o in guests}
+            p.slops.append("said something you shouldn't have")
     if last_speaker and last_speaker == p.id:
         hints.append("You spoke last; only add something if it moves things forward.")
     if wind_down:
@@ -222,6 +236,7 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
         tension=t.tension if on_event else 0.0,
         mode=mode if (t.kind == "chat" and not p.is_bartender and t.lines) else "normal",
         mood=p.mood, buzz=p.buzz, battery=p.battery,
+        drunk=drunk.tier(p.buzz), serve=serve, water=water,
         excuse=t.excuse.get(p.id, ""),
         avoid=avoid,
         life=(life.freshest(mine, now, 1)[0].text if life.freshest(mine, now, 1) else ""),

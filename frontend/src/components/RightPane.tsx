@@ -110,7 +110,8 @@ function ProfilePane() {
             <dl className="space-y-1 text-sm">
               <Row k="Here to" v={REASON[p.state.reason] ?? p.state.reason} />
               <Row k="Mood" v={moodWord(p.state.mood)} />
-              <Row k="Buzz" v={p.state.drinks ? `${p.state.drinks} drink${p.state.drinks > 1 ? "s" : ""}, ${bar(p.state.buzz)}` : "sober"} />
+              <Row k="Buzz" v={p.state.drinks ? `${p.state.drinks} drink${p.state.drinks > 1 ? "s" : ""}, ${p.state.tier}${p.state.cut_off ? ", cut off" : p.state.on_water ? ", on water" : ""}` : "sober"} />
+              {p.state.slops.length > 0 && <Row k="Tonight" v={p.state.slops.join(", ")} />}
               <Row k="Social energy" v={bar(p.state.battery)} />
               {p.state.need && <Row k="Needs to" v={p.state.need} />}
             </dl>

@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from app.db.models import BondChange, LifeEvent, Message, Person, Session, Thread, get_state
-from app.sim import bonds, life, realism
+from app.sim import bonds, drunk, life, realism
 from app.sim.state import display_name
 
 router = APIRouter(prefix="/api/realism")
@@ -53,6 +53,7 @@ async def summary(period: str = "day", date: str = ""):
             .order_by(Message.id)
         )).all()
         names = {pid: display_name(n) for pid, n in (await s.execute(select(Person.id, Person.name))).all()}
+        drunk_log = [h for h in (await get_state(s, "drunk_log", []) or []) if start.isoformat() <= h["day"] < end.isoformat()]
         moves = (await s.scalars(select(BondChange).where(
             BondChange.sim_ts >= datetime.combine(start, time.min), BondChange.sim_ts < datetime.combine(end, time.min)
         ).order_by(BondChange.id.desc()))).all()
@@ -89,6 +90,7 @@ async def summary(period: str = "day", date: str = ""):
         "bonds": {"changes": len(moves), "patron_days": patron_days, "list": listed, **bonds.drama(len(moves), patron_days, len(days))},
         "range": {"start": start.isoformat(), "end": (end - timedelta(days=1)).isoformat(), "period": period},
         **result, "series": series, "life": life.continuity(in_range, events, names),
+        "drunk": drunk.consequences(drunk_log),
     }
 
 
