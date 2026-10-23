@@ -321,3 +321,60 @@ def test_the_mock_voices_each_bartender_state():
     assert "B2" in _run(mock.speak(req)).say
     req.grumble = False
     assert _run(mock.speak(req)).say
+
+
+# ---------------------------------------------------------------- tasters
+
+
+def test_pour_goal_follows_the_persona_range_with_a_fallback():
+    for _ in range(20):
+        assert 3 <= staff.start_shift(_persona(pours=[3, 5]), random.Random(_), NOW).pour_goal <= 5
+        assert 2 <= staff.start_shift(_persona(), random.Random(_), NOW).pour_goal <= 5
+
+
+def test_a_bartender_only_pours_when_due_under_goal_mildly_buzzed_and_free():
+    s = staff.start_shift(_persona(), random.Random(1), NOW)
+    late = NOW + timedelta(hours=3)
+    assert not staff.wants_pour(s, 0.0, NOW, False, 0)
+    assert staff.wants_pour(s, 0.0, late, False, 0)
+    assert not staff.wants_pour(s, 0.0, late, True, 0) and not staff.wants_pour(s, 0.0, late, False, 2)
+    assert not staff.wants_pour(s, staff.BT_STOP, late, False, 0)
+    s.pours = s.pour_goal
+    assert not staff.wants_pour(s, 0.0, late, False, 0)
+
+
+def test_pick_pour_prefers_new_then_favorite_and_never_water():
+    names = ["Distant Visions", "Springforge", "Heated Rivalry"]
+    rng = random.Random(2)
+    assert staff.pick_pour({"drink": "loves Distant Visions"}, ["Heated Rivalry"], names, rng) == ("Heated Rivalry", "new")
+    assert staff.pick_pour({"drink": "loves Distant Visions"}, [], names, rng) == ("Distant Visions", "favorite")
+    assert staff.pick_pour({}, [], names, rng)[1] == "check"
+
+
+def test_a_full_shift_of_tasters_stays_mildly_buzzed():
+    d = _bar()
+    b, sh = d.people["b2"], d.staff["b2"]
+    sh.pour_goal = 6
+    sh.next_pour_at = NOW
+    for _ in range(40):
+        d.clock.now = lambda t=NOW + timedelta(hours=_ * 0.2): t
+        _run(d.staff_step(12))
+    assert 1 <= sh.pours <= 6
+    assert sh.peak_buzz < staff.BT_STOP + staff.pour_strength(6.0) * 0.18 * 1.2 + 0.01
+    assert sh.peak_buzz > 0
+
+
+def test_buzz_shows_in_the_hint_and_loosens_the_bar():
+    s = staff.Shift(started=NOW)
+    assert "buzzed" not in staff.state_hint(s, 0.0)
+    assert "little buzzed" in staff.state_hint(s, 0.0, 0.2)
+    assert staff.mistake_chance(s, _persona(), 5, 0.2) > staff.mistake_chance(s, _persona(), 5)
+    assert staff.mood_scale(s, 0.0, 0.2) > staff.mood_scale(s, 0.0)
+
+
+def test_tasters_are_remembered_and_reported():
+    s = staff.Shift(started=NOW, pours=3, poured=["A", "B", "A"], peak_buzz=0.2)
+    text, _, row = staff.end_of_shift(s, "b1", "2026-01-01")
+    assert "3 tasters (A, B)" in text and "buzzed" in text
+    rep = staff.report([row, row, row])
+    assert rep["pours_avg"] == 3.0 and rep["buzzed"] == 3

@@ -175,7 +175,8 @@ async def person(pid: str):
     sh = director.staff.get(pid) if p.is_bartender and p.present else None
     shift_view = {
         "mood": round(p.mood, 2), "energy": staff.tired_word(sh), "rough": sh.rough, "served": sh.served,
-        "wrong": sh.wrong, "spills": sh.spills, "peeve": staff.PEEVES.get(str(p.persona.get("peeve", "")), ""),
+        "wrong": sh.wrong, "spills": sh.spills, "pours": sh.pours, "poured": list(dict.fromkeys(sh.poured))[-3:],
+        "feeling": staff.buzz_word(p.buzz), "peeve": staff.PEEVES.get(str(p.persona.get("peeve", "")), ""),
         "gripe": director.people[sh.gripe].short if sh.gripe in director.people else "",
     } if sh else None
     rec = director.taste_of(p) if not p.is_bartender else None

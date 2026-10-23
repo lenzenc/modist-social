@@ -216,7 +216,8 @@ export default function RealismPage() {
             <div className="text-xs text-[var(--muted)]">
               Shifts with a mistake, a rough night, friction with the coworker, a pet peeve tripped or a worn-out finish ({summary.staff.shifts}{" "}
               shifts, {summary.staff.wrong_pours} wrong pours, {summary.staff.spills} spills, {summary.staff.rough} rough nights,{" "}
-              {summary.staff.gripes} gripes, {summary.staff.peeves} peeves). If every shift is the same, the people behind the bar are
+              {summary.staff.gripes} gripes, {summary.staff.peeves} peeves, {summary.staff.pours_avg} tasters a shift,{" "}
+              {summary.staff.buzzed} shifts a little buzzed). If every shift is the same, the people behind the bar are
               furniture. Not part of the overall score.
             </div>
           </div>

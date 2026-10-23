@@ -40,6 +40,8 @@ _HEATED_LINES = [
     "We're going in circles. I'm not changing my mind on this.",
     "That's exactly the problem with how people talk about this.",
 ]
+_BT_LOOSE = ["Okay, okay, don't tell the owner, but this one's my favorite.", "Ha! Sorry, I've been tasting all night, everything's funny.",
+             "You know what? You're right. Hang on, I need to try that again."]
 _REACTS = ["Ha, no way.", "Ope, really?", "Huh.", "Ha! Fair.", "Yeah, same.", "Wait, what?", "Hm. Maybe.", "Oh come on."]
 _TIRED = ["Yeah... sorry, I'm kind of fried tonight.", "Mm. Long day.", "Sure, whatever you think.", "I'm just gonna sit with this beer a sec."]
 _LOOSE = [
@@ -193,6 +195,8 @@ class MockLLM:
                 say = r.choice(_WASTED if req.drunk == "wasted" else _SLURRED)
             elif req.buzz > 0.4 and r.random() < 0.4:
                 say = r.choice(_LOOSE)
+        if req.is_bartender and req.kind == "chat" and req.last_line and req.buzz >= 0.18 and r.random() < 0.35:
+            say = r.choice(_BT_LOOSE)
         if req.rumor and req.kind == "chat" and req.last_line and not req.is_bartender and r.random() < 0.3:
             about, text = req.rumor
             claim = _distort(text, r) if text else r.choice(_CLAIMS).format(name=about)

@@ -1624,6 +1624,7 @@ class Director:
 
     async def bartender_on(self, b: PersonState) -> None:
         b.present, b.location = True, "bar"
+        b.buzz = b.peak_buzz = 0.0
         shift = staff.start_shift(b.persona, self.rng, self.clock.now())
         self.staff[b.id] = shift
         b.mood = staff.opening_mood(b.persona, self.rng, shift)
@@ -1736,6 +1737,11 @@ class Director:
             if not b.present:
                 continue
             staff.tire(sh, b.persona, dt_min, guests, len(self.queue))
+            b.buzz = max(0.0, b.buzz - human.BUZZ_DECAY_PER_HOUR * dt_min / 60)
+            bt = self.bartender_thread(b)
+            if staff.wants_pour(sh, b.buzz, self.clock.now(), bool(bt and bt.kind == "order"), len(self.queue)):
+                await self.taste_pour(b, sh)
+            sh.peak_buzz = max(sh.peak_buzz, b.buzz)
             b.mood += ((-0.2 if sh.rough else 0.0) - b.mood) * min(1.0, dt_min / 180)
             if dm := staff.line_mood(len(self.queue), dt_min):
                 human.nudge_mood(b, dm)
@@ -1745,10 +1751,26 @@ class Director:
                 human.nudge_mood(b, -0.08)
                 await self.post("bar", staff.mistake_text(self.rng, "spill", b), kind="system")
 
+    async def taste_pour(self, b: PersonState, sh: staff.Shift) -> None:
+        """A bartender tastes the product: a 4oz pour on the house, never rung up."""
+        now = self.clock.now()
+        names = [n for n in menu.names() if menu.abv(n) != 0]
+        if not names:
+            return
+        new = [r["name"] for r in self.released if occasions.release_tonight([r], now)]
+        name, why = staff.pick_pour(b.persona, new, names, self.rng)
+        b.buzz = human.add_drink(b.buzz, b.persona, staff.pour_strength(menu.abv(name)))
+        sh.pours += 1
+        sh.poured.append(name)
+        sh.next_pour_at = now + timedelta(minutes=self.rng.uniform(*staff.POUR_GAP_MIN))
+        human.nudge_mood(b, 0.04)
+        sh.fatigue = max(0.0, sh.fatigue - 0.03)
+        await self.post("bar", staff.pour_text(self.rng, b, name, why), kind="system")
+
     def verve(self, b: PersonState) -> float:
         """How readily a bartender chats: lower when tired or in a bad mood."""
         sh = self.staff.get(b.id)
-        return staff.mood_scale(sh, b.mood) if sh else 1.0
+        return staff.mood_scale(sh, b.mood, b.buzz) if sh else 1.0
 
     async def staff_friction(self, now: datetime, dt_min: float) -> None:
         """One bartender working a line while the other chats: it can turn into a grievance."""
@@ -1775,7 +1797,7 @@ class Director:
         b, now = self.people[bt_id], self.clock.now()
         sh.served += 1
         guests = sum(1 for p in self.patrons() if p.present)
-        if self.rng.random() < staff.mistake_chance(sh, b.persona, guests):
+        if self.rng.random() < staff.mistake_chance(sh, b.persona, guests, b.buzz):
             if staff.roll_mistake(self.rng) == "wrong_pour" and drink != menu.WATER:
                 wrong = self.rng.choice([n for n in menu.names() if n != drink])
                 sh.wrong += 1

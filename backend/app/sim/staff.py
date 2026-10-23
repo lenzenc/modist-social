@@ -6,8 +6,8 @@ deterministic given an rng; the model only voices what the code decides, through
 mood lives on their PersonState (so human.nudge_mood and human.blend_mood work on it); the Shift holds the rest.
 """
 import random
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 
 from app.sim import drunk, human
 from app.sim.beats import pos
@@ -30,6 +30,11 @@ IMPATIENT_MIN = 2.0  # minutes in line before an impatient guest bothers a barte
 CAMPER_MIN = 90.0  # minutes on a stool nursing a drink or two
 FRICTION_BASE = 0.12
 FRICTION_MAX = 0.4
+POUR_OZ, PINT_OZ = 4, 16  # a taster is four ounces, against the pint a guest gets
+POURS = (2, 4)  # tasters in a shift when the persona doesn't say
+FIRST_POUR_MIN = 45  # nobody pours one straight off clock-in
+POUR_GAP_MIN = (50, 110)
+BT_LOOSE, BT_BUZZED, BT_STOP = 0.08, 0.18, 0.25  # buzz at which it shows, at which it's a real buzz, and past which they stop pouring
 TEXTURED_BAND = (50, 25)  # share of shifts with anything happening, for green and amber
 
 PEEVES = {
@@ -73,10 +78,18 @@ class Shift:
     grudge: str = ""  # that coworker's name, kept for the end-of-shift memory
     owed: str = ""  # the coworker (name) who has just aired a gripe at them and is owed an answer
     made_up: bool = False  # they have answered a gripe; the director settles the score
+    pour_goal: int = 0  # tasters they mean to have this shift
+    pours: int = 0
+    next_pour_at: datetime | None = None
+    poured: list[str] = field(default_factory=list)
+    peak_buzz: float = 0.0
 
 
 def start_shift(persona: dict, rng: random.Random, now: datetime) -> Shift:
     s = Shift(started=now)
+    lo, hi = (persona.get("pours") or POURS)[:2]
+    s.pour_goal = rng.randint(lo, hi) + (1 if human.trait(persona, "c") <= 2 and rng.random() < 0.5 else 0)
+    s.next_pour_at = now + timedelta(minutes=FIRST_POUR_MIN + rng.uniform(0, 30))
     reasons = [r for r in (persona.get("rough") or []) if r]
     if reasons and rng.random() < ROUGH_ODDS:
         s.rough = rng.choice(reasons)
@@ -116,11 +129,55 @@ def worn(s: Shift) -> bool:
     return s.fatigue >= WORN
 
 
+# ---------------------------------------------------------------- tasters
+
+
+def pour_strength(abv: float | None) -> float:
+    """How hard a four-ounce taster hits, in the units human.add_drink takes (a pint of ordinary beer is 1.0)."""
+    return drunk.strength(abv) * POUR_OZ / PINT_OZ
+
+
+def wants_pour(s: Shift, buzz: float, now: datetime, busy: bool, queue: int) -> bool:
+    """Due, under their goal, still only mildly buzzed, and in a lull: a bartender doesn't taste with a line waiting."""
+    return bool(s.next_pour_at and now >= s.next_pour_at and s.pours < s.pour_goal and buzz < BT_STOP and not busy and queue == 0)
+
+
+def pick_pour(persona: dict, released_tonight: list[str], names: list[str], rng: random.Random) -> tuple[str, str]:
+    """(beer, why): a beer new tonight first, then a favourite named in the persona, else a quality check on anything."""
+    if new := [n for n in released_tonight if n in names]:
+        return rng.choice(new), "new"
+    text = str(persona.get("drink", "")).lower()
+    if fav := [n for n in names if n.lower() in text]:
+        return rng.choice(fav), "favorite"
+    return rng.choice(names), "check"
+
+
+def pour_text(rng: random.Random, b, name: str, why: str) -> str:
+    if why == "new":
+        return rng.choice([f"🍺 {b.short} tastes a splash of the new {name} to check it.", f"🍺 {b.short} pours a 4oz taster of the new {name}."])
+    if why == "favorite":
+        return rng.choice([f"🍺 {b.short} pours {pos(b)}self a 4oz taster of {name}.", f"🍺 {b.short} sneaks a small {name} between orders."])
+    return rng.choice([f"🍺 {b.short} pours a 4oz taster of {name} as a quality check.", f"🍺 {b.short} tries a little {name} to see how it's pouring."])
+
+
+def buzz_hint(buzz: float) -> str:
+    if buzz >= BT_BUZZED:
+        return ("You're a little buzzed from a few tasters over the shift: chattier, more candid, a bit more teasing, "
+                "still fully on top of the job. Never sloppy.")
+    if buzz >= BT_LOOSE:
+        return "You've had a taster or two: a touch looser and quicker to laugh."
+    return ""
+
+
+def buzz_word(buzz: float) -> str:
+    return "a little buzzed" if buzz >= BT_BUZZED else "a taster or two in" if buzz >= BT_LOOSE else ""
+
+
 # ---------------------------------------------------------------- mistakes
 
 
-def mistake_chance(s: Shift, persona: dict, guests: int) -> float:
-    c = MISTAKE_BASE + 0.05 * s.fatigue + (0.03 if s.rough else 0.0) + 0.01 * max(0, 3 - human.trait(persona, "c"))
+def mistake_chance(s: Shift, persona: dict, guests: int, buzz: float = 0.0) -> float:
+    c = MISTAKE_BASE + 0.04 * buzz + 0.05 * s.fatigue + (0.03 if s.rough else 0.0) + 0.01 * max(0, 3 - human.trait(persona, "c"))
     c += 0.02 if guests > 10 else 0.0
     return min(MISTAKE_MAX, c)
 
@@ -171,7 +228,7 @@ def peeve_hint(key: str) -> str:
     return PEEVE_HINT.format(peeve=PEEVES.get(key, "a certain kind of guest"))
 
 
-def state_hint(s: Shift, mood: float) -> str:
+def state_hint(s: Shift, mood: float, buzz: float = 0.0) -> str:
     parts = []
     if s.rough:
         parts.append(STATE_ROUGH.format(why=s.rough))
@@ -181,6 +238,8 @@ def state_hint(s: Shift, mood: float) -> str:
         parts.append(STATE_TIRED)
     if (w := human.mood_word(mood)) and not s.rough:
         parts.append(f"You're {w}.")
+    if h := buzz_hint(buzz):
+        parts.append(h)
     return " ".join(parts)
 
 
@@ -188,9 +247,9 @@ def tired_word(s: Shift) -> str:
     return "worn out" if s.fatigue >= WORN else "tired" if s.fatigue >= TIRED else "fresh"
 
 
-def mood_scale(s: Shift, mood: float) -> float:
+def mood_scale(s: Shift, mood: float, buzz: float = 0.0) -> float:
     """How readily a bartender chats and lingers: lower when tired or in a bad mood, a touch higher when cheerful."""
-    return max(0.3, 1.0 - 0.5 * s.fatigue + 0.2 * mood)
+    return max(0.3, 1.0 - 0.5 * s.fatigue + 0.2 * mood + 0.6 * buzz)
 
 
 # ---------------------------------------------------------------- friction with the coworker
@@ -212,7 +271,8 @@ def look(rng: random.Random, a: str, b: str) -> str:
 
 
 def textured(s: Shift) -> bool:
-    return bool(s.wrong or s.spills or s.rough or s.peeves or s.gripes or s.fatigue >= WORN or s.low <= -0.45 or s.high >= 0.5)
+    return bool(s.wrong or s.spills or s.rough or s.peeves or s.gripes or s.fatigue >= WORN or s.low <= -0.45 or s.high >= 0.5
+                or s.peak_buzz >= BT_BUZZED)
 
 
 def end_of_shift(s: Shift, pid: str, day: str) -> tuple[str, int, dict]:
@@ -230,9 +290,14 @@ def end_of_shift(s: Shift, pid: str, day: str) -> tuple[str, int, dict]:
         bits.append(f"{s.grudge} left you with the rush")
     if s.peeves:
         bits.append("guests who got under your skin")
+    if s.pours:
+        bits.append(f"{s.pours} taster{'s' if s.pours != 1 else ''} ({', '.join(dict.fromkeys(s.poured))})")
+    if s.peak_buzz >= BT_BUZZED:
+        bits.append("a little buzzed by close")
     text = f"End of shift: {', '.join(bits)}." if bits else f"An ordinary shift: {s.served} drinks poured, nothing much to report."
     row = {"day": day, "pid": pid, "served": s.served, "wrong": s.wrong, "spills": s.spills, "rough": bool(s.rough),
-           "peeves": s.peeves, "gripes": s.gripes, "worn": s.fatigue >= WORN, "textured": textured(s)}
+           "peeves": s.peeves, "gripes": s.gripes, "worn": s.fatigue >= WORN, "textured": textured(s),
+           "pours": s.pours, "peak": round(s.peak_buzz, 2)}
     return text, 4 if bits else 2, row
 
 
@@ -244,4 +309,6 @@ def report(log: list[dict]) -> dict:
     band = "none" if rate is None else "green" if rate >= TEXTURED_BAND[0] else "amber" if rate >= TEXTURED_BAND[1] else "red"
     return {"rate": rate, "band": band, "shifts": n, "wrong_pours": sum(r["wrong"] for r in log),
             "spills": sum(r["spills"] for r in log), "rough": sum(1 for r in log if r["rough"]),
-            "gripes": sum(r["gripes"] for r in log), "peeves": sum(r["peeves"] for r in log)}
+            "gripes": sum(r["gripes"] for r in log), "peeves": sum(r["peeves"] for r in log),
+            "pours_avg": round(sum(r.get("pours", 0) for r in log) / n, 1) if n else 0.0,
+            "buzzed": sum(1 for r in log if r.get("peak", 0) >= BT_BUZZED)}

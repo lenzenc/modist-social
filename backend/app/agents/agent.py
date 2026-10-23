@@ -101,7 +101,7 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
     shift = d.staff.get(p.id) if p.is_bartender else None
     if not p.is_bartender and (feel := human.right_now(p, now)):
         out.append(feel)
-    elif shift is not None and (feel := staff.state_hint(shift, p.mood)):
+    elif shift is not None and (feel := staff.state_hint(shift, p.mood, p.buzz)):
         out.append(feel)
     mine = d.life.get(p.id, []) if not p.is_bartender else []
     if mind := life.on_mind(mine, now):

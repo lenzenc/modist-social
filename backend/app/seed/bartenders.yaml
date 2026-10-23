@@ -19,6 +19,7 @@
   tics: ["says people's names a lot", "says 'okay, okay'"]
   reasons: {work: 1}
   peeve: impatient
+  pours: [3, 5]
   rough: ["a landlord call about the lease on a space she wanted", "her cat is at the vet"]
 - id: b2
   name: Rico Alvarez
@@ -41,6 +42,7 @@
   tics: ["says 'no notes'", "drops song lyrics into conversation"]
   reasons: {work: 1}
   peeve: camper
+  pours: [3, 6]
   rough: ["the festival setlist keeps falling apart", "his band argued all through rehearsal"]
 - id: b3
   name: June Whitaker
@@ -63,6 +65,7 @@
   tics: ["says 'mm-hm'", "says 'Well, anyway'"]
   reasons: {work: 1}
   peeve: drunk
+  pours: [1, 3]
   rough: ["another tuition bill came in", "her eldest is sulking about college applications"]
 - id: b4
   name: Cody Bright
@@ -85,6 +88,7 @@
   tics: ["says 'fun fact'", "blurts a hop variety"]
   reasons: {work: 1}
   peeve: bad_tipper
+  pours: [2, 4]
   rough: ["he blanked on a hop variety at study group", "he barely slept before the exam"]
 - id: b5
   name: Sam Okonkwo
@@ -107,4 +111,5 @@
   tics: ["says 'what do you mean by that?'", "says 'right on'"]
   reasons: {work: 1}
   peeve: impatient
+  pours: [1, 2]
   rough: ["the toddler was up all night", "daycare called with a fever"]

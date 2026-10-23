@@ -112,6 +112,8 @@ function ProfilePane() {
               <Row k="Energy" v={p.shift.energy} />
               {p.shift.rough && <Row k="Rough night" v={p.shift.rough} />}
               <Row k="Poured" v={`${p.shift.served} drinks${p.shift.wrong ? `, ${p.shift.wrong} wrong` : ""}${p.shift.spills ? `, ${p.shift.spills} spilled` : ""}`} />
+              {p.shift.pours > 0 && <Row k="Tasters" v={`${p.shift.pours} (${p.shift.poured.join(", ")})`} />}
+              {p.shift.feeling && <Row k="Feeling" v={p.shift.feeling} />}
               {p.shift.peeve && <Row k="Pet peeve" v={p.shift.peeve} />}
               {p.shift.gripe && <Row k="Sore at" v={p.shift.gripe} />}
             </dl>
