@@ -105,6 +105,19 @@ function ProfilePane() {
           </div>
         </div>
 
+        {p.shift && (
+          <Section title="This shift">
+            <dl className="space-y-1 text-sm">
+              <Row k="Mood" v={moodWord(p.shift.mood)} />
+              <Row k="Energy" v={p.shift.energy} />
+              {p.shift.rough && <Row k="Rough night" v={p.shift.rough} />}
+              <Row k="Poured" v={`${p.shift.served} drinks${p.shift.wrong ? `, ${p.shift.wrong} wrong` : ""}${p.shift.spills ? `, ${p.shift.spills} spilled` : ""}`} />
+              {p.shift.peeve && <Row k="Pet peeve" v={p.shift.peeve} />}
+              {p.shift.gripe && <Row k="Sore at" v={p.shift.gripe} />}
+            </dl>
+          </Section>
+        )}
+
         {p.state && (
           <Section title="Right now">
             <dl className="space-y-1 text-sm">

@@ -142,6 +142,8 @@ export interface Profile extends Person {
   }[];
   /** How they feel right now; null when they're not in the taproom. */
   state: { reason: string; mood: number; buzz: number; battery: number; need: string; thought: string; drinks: number; tier: string; cut_off: boolean; on_water: boolean; slops: string[]; cap: number; spent: number } | null;
+  /** How the shift is going for a bartender on the bar; null otherwise. */
+  shift: { mood: number; energy: string; rough: string; served: number; wrong: number; spills: number; peeve: string; gripe: string } | null;
   /** What they like to drink and what they can spend; null for staff. */
   taste: { favorites: string[]; tired_of: string[]; budget: "tight" | "ok" | "flush"; owes: Record<string, number> } | null;
   lately: string;
