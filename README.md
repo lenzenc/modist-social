@@ -131,6 +131,10 @@ At the default pacing a full simulated day is on the order of a thousand short u
 
 Edit `backend/app/seed/` (`patrons.yaml`, `bartenders.yaml`, `relationships.yaml`, `world.md`). Persona edits for the existing people apply on restart; adding people or changing relationships needs `make reset`, which also wipes everyone who walked in. First names must be unique across everyone (walk-ins are checked against them, so new names go in `names.yaml` rather than clashing).
 
+## What's next
+
+I wasn't sure what to build next, so I asked an AI "what's next?" with one goal: make the sim more human. It came back with ten ranked ideas (a realism scorecard, life between visits, evolving relationships, drunkenness with consequences, and more). They are kept as-is in [docs/ai-planning.md](docs/ai-planning.md), and I'm using them as the roadmap.
+
 ## Development
 
 ```bash
