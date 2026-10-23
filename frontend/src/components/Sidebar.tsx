@@ -11,10 +11,6 @@ export function Sidebar() {
   const bartenders = here.filter((p) => p.role === "bartender");
   const patrons = here.filter((p) => p.role === "patron").sort((a, b) => a.short.localeCompare(b.short));
 
-  // People in a channel: the staff channel counts bartenders, the door is just a log, the rest count patrons there.
-  const headcount = (id: string) =>
-    id === "staff" ? bartenders.length : id === "door" ? 0 : patrons.filter((p) => presence[p.id]?.location === id).length;
-
   // Seated = a stool at the bar, or a numbered table inside / on the patio. Everyone else is standing.
   const seatOf = (id: string): [string, number] | null => {
     const pr = presence[id];
@@ -60,22 +56,20 @@ export function Sidebar() {
             onClick={() => selectChannel(c.id)}
             className={`flex w-full cursor-pointer items-center justify-between px-4 py-1 text-left ${
               channel === c.id ? "bg-[var(--sidebar-active)] text-white" : "hover:bg-[var(--sidebar-hover)]"
-            } ${unread[c.id] && channel !== c.id ? "font-bold text-white" : ""}`}
+            } ${unread[c.id]?.length && channel !== c.id ? "font-bold text-white" : ""}`}
           >
             <span>
               <span className="mr-1 opacity-60">#</span>
               {c.id}
             </span>
-            <span className="flex items-center gap-2">
-              {headcount(c.id) > 0 && (
-                <span className="text-[11px] opacity-60" title={`${headcount(c.id)} here`}>
-                  👤 {headcount(c.id)}
-                </span>
-              )}
-              {!!unread[c.id] && channel !== c.id && (
-                <span className="inline-block h-2 w-2 rounded-full bg-[#cd2553]" title="New messages" />
-              )}
-            </span>
+            {!!unread[c.id]?.length && channel !== c.id && (
+              <span
+                className="rounded-full bg-[#cd2553] px-1.5 text-[11px] font-bold text-white"
+                title={`${unread[c.id].length} unread conversation${unread[c.id].length === 1 ? "" : "s"}`}
+              >
+                {unread[c.id].length > 99 ? "99+" : unread[c.id].length}
+              </span>
+            )}
           </button>
         ))}
 

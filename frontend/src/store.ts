@@ -22,7 +22,8 @@ interface State {
   threads: Record<number, Thread>;
   threadMsgs: Record<number, Msg[]>;
   typing: Record<number, string[]>;
-  unread: Record<string, number>;
+  /** Per channel, the conversations (thread ids) with lines you haven't seen. */
+  unread: Record<string, number[]>;
   openThread: number | null;
   profile: Profile | null;
   profileId: string | null;
@@ -103,7 +104,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   selectChannel: async (id) => {
-    set((s) => ({ channel: id, unread: { ...s.unread, [id]: 0 } }));
+    set((s) => ({ channel: id, unread: { ...s.unread, [id]: [] } }));
     const feed = await api<Feed>(`/api/channels/${id}/feed`);
     set((s) => ({ feeds: { ...s.feeds, [id]: feed } }));
     // Pull transcripts for the threads we will preview inline.
@@ -239,8 +240,11 @@ export const useStore = create<State>((set, get) => ({
               const feed = s.feeds[m.channel] ?? { threads: [], messages: [] };
               next.feeds = { ...s.feeds, [m.channel]: { ...feed, messages: mergeMsgs(feed.messages, [m]).slice(-200) } };
             }
-            // Only people talking count as unread; system notices (shift starts, arrivals) don't.
-            if (m.channel !== s.channel && m.thread_id != null && m.kind !== "system") next.unread = { ...s.unread, [m.channel]: (s.unread[m.channel] ?? 0) + 1 };
+            // Only people talking count as unread, once per conversation; system notices (shift starts, arrivals) don't.
+            if (m.channel !== s.channel && m.thread_id != null && m.kind !== "system") {
+              const seen = s.unread[m.channel] ?? [];
+              if (!seen.includes(m.thread_id)) next.unread = { ...s.unread, [m.channel]: [...seen, m.thread_id] };
+            }
             return next;
           });
           break;
