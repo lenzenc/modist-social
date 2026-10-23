@@ -1,33 +1,12 @@
+import { AREAS, useRoster } from "../skins/shared/useRoster";
 import { useStore } from "../store";
 import { fmtDayTime } from "../util";
-import { STOOLS, TABLES } from "../taproom/layout";
 import { Avatar } from "./Avatar";
 
 export function Sidebar() {
-  const { channels, channel, selectChannel, unread, clock, people, presence, city, llmMode, connected } =
-    useStore();
-
-  const here = Object.values(people).filter((p) => presence[p.id]);
-  const bartenders = here.filter((p) => p.role === "bartender");
-  const patrons = here.filter((p) => p.role === "patron").sort((a, b) => a.short.localeCompare(b.short));
-
-  // Seated = a stool at the bar, or a numbered table inside / on the patio. Everyone else is standing.
-  const seatOf = (id: string): [string, number] | null => {
-    const pr = presence[id];
-    if (pr?.location === "bar" && pr.stool != null) return ["bar", pr.stool];
-    if (pr?.location && pr.location in TABLES && pr.table != null) return [pr.location, pr.table];
-    return null;
-  };
-  const inArea = (area: string) =>
-    patrons
-      .filter((p) => seatOf(p.id)?.[0] === area)
-      .sort((a, b) => seatOf(a.id)![1] - seatOf(b.id)![1]);
-  const standing = patrons.filter((p) => !seatOf(p.id));
-  const areas = [
-    { id: "bar", title: "At the bar", seat: "stool", cap: STOOLS.length },
-    { id: "inside-tables", title: "Inside tables", seat: "table", cap: 0 },
-    { id: "patio", title: "Patio", seat: "table", cap: 0 },
-  ];
+  const { channels, channel, selectChannel, unread, clock, presence, city, llmMode, connected } = useStore();
+  const { bartenders, seatOf, inArea, standing } = useRoster();
+  const areas = AREAS;
 
   return (
     <aside className="flex w-64 shrink-0 flex-col bg-[var(--sidebar)] text-[var(--sidebar-text)]">

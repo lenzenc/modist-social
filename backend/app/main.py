@@ -17,7 +17,7 @@ from app.realism_api import router as realism_router
 from app.sales_api import router as sales_router
 from app.seed.loader import seed_if_empty
 from app.sim import god as godmode
-from app.sim import drunk, life, taste
+from app.sim import drunk, life, menu, taste
 from app.sim.director import Director
 from app.sim.state import CHANNEL_DESC, CHANNELS
 
@@ -85,6 +85,12 @@ async def bootstrap():
         "llm_mode": settings.llm_mode,
         "city": settings.brewery_city,
     }
+
+
+@app.get("/api/menu")
+async def menu_board():
+    """The board as served: name, style and ABV for every drink in drinks.yaml."""
+    return [{"name": d["name"], "style": d.get("style"), "abv": d.get("abv")} for d in menu.drinks()]
 
 
 @app.get("/api/channels/{channel}/feed")

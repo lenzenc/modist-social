@@ -116,7 +116,7 @@ export function GodMode() {
               </div>
               <div className="mt-1 flex items-center gap-2">
                 Heat
-                <div className="h-1.5 flex-1 rounded bg-black/10">
+                <div className="h-1.5 flex-1 rounded bg-[var(--track)]">
                   <div className="h-full rounded bg-amber-500" style={{ width: `${Math.round(god.heat * 100)}%` }} />
                 </div>
               </div>

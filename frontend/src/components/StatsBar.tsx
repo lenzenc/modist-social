@@ -19,7 +19,7 @@ export function StatsBar() {
       {stats.errors > 0 && <span className="text-red-500">{stats.errors} API errors</span>}
       <span className="ml-auto flex items-center gap-2">
         {money(stats.spent_today)} of ${stats.budget.toFixed(2)} today
-        <span className="inline-block h-1.5 w-24 rounded-full bg-black/10">
+        <span className="inline-block h-1.5 w-24 rounded-full bg-[var(--track)]">
           <span
             className={`block h-1.5 rounded-full ${pct > 85 ? "bg-red-500" : "bg-[var(--ok)]"}`}
             style={{ width: `${pct}%` }}

@@ -26,7 +26,7 @@ function Header({ title, sub, onClose }: { title: string; sub?: string; onClose:
   );
 }
 
-function ThreadPane({ id }: { id: number }) {
+export function ThreadPane({ id }: { id: number }) {
   const msgs = useStore((s) => s.threadMsgs[id]) ?? [];
   const typing = useStore((s) => s.typing[id]) ?? [];
   const close = useStore((s) => s.openThreadPane);
@@ -73,7 +73,7 @@ const BOND_ICON: Record<string, string> = {
 };
 const bar = (n: number) => `${Math.round(n * 100)}%`;
 
-function ProfilePane() {
+export function ProfilePane() {
   const p = useStore((s) => s.profile);
   const close = useStore((s) => s.openProfile);
   const open = useStore((s) => s.openProfile);
@@ -104,6 +104,19 @@ function ProfilePane() {
             </div>
           </div>
         </div>
+
+        {p.shift && (
+          <Section title="This shift">
+            <dl className="space-y-1 text-sm">
+              <Row k="Mood" v={moodWord(p.shift.mood)} />
+              <Row k="Energy" v={p.shift.energy} />
+              {p.shift.rough && <Row k="Rough night" v={p.shift.rough} />}
+              <Row k="Poured" v={`${p.shift.served} drinks${p.shift.wrong ? `, ${p.shift.wrong} wrong` : ""}${p.shift.spills ? `, ${p.shift.spills} spilled` : ""}`} />
+              {p.shift.peeve && <Row k="Pet peeve" v={p.shift.peeve} />}
+              {p.shift.gripe && <Row k="Sore at" v={p.shift.gripe} />}
+            </dl>
+          </Section>
+        )}
 
         {p.state && (
           <Section title="Right now">
@@ -236,7 +249,7 @@ function Row({ k, v }: { k: string; v: string }) {
 function Bar({ value, max, color, label }: { value: number; max: number; color: string; label: string }) {
   return (
     <div className="flex-1" title={`${label}: ${Math.round(value)}`}>
-      <div className="h-1.5 rounded-full bg-black/10">
+      <div className="h-1.5 rounded-full bg-[var(--track)]">
         <div className="h-1.5 rounded-full" style={{ width: `${(value / max) * 100}%`, background: color }} />
       </div>
     </div>

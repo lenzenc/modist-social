@@ -12,6 +12,8 @@
   --panel: #f8f8f8;
   --accent: #1264a3;
   --ok: #2bac76;
+  --bg: var(--canvas);
+  --track: rgb(0 0 0 / 0.1);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -25,6 +27,7 @@
     --canvas: #1a1d21;
     --panel: #222529;
     --accent: #4aa3df;
+    --track: rgb(255 255 255 / 0.12);
   }
 }
 

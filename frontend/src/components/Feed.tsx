@@ -53,7 +53,7 @@ export function Feed() {
   );
 }
 
-function ThreadCard({ t }: { t: Thread }) {
+export function ThreadCard({ t }: { t: Thread }) {
   const openThreadPane = useStore((s) => s.openThreadPane);
   const open = useStore((s) => s.openThread === t.id);
   const msgs = useStore((s) => s.threadMsgs[t.id]);

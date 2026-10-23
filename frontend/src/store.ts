@@ -26,7 +26,11 @@ interface State {
   openThread: number | null;
   profile: Profile | null;
   profileId: string | null;
+  /** Skins that show every channel at once set this so bootstrap and reconnects reload all feeds. */
+  allFeeds: boolean;
 
+  setAllFeeds: (on: boolean) => void;
+  loadAllFeeds: () => Promise<void>;
   bootstrap: () => Promise<void>;
   selectChannel: (id: string) => Promise<void>;
   loadLiveThreads: () => Promise<void>;
@@ -74,6 +78,30 @@ export const useStore = create<State>((set, get) => ({
   openThread: null,
   profile: null,
   profileId: null,
+  allFeeds: false,
+
+  setAllFeeds: (on) => {
+    const was = get().allFeeds;
+    set({ allFeeds: on });
+    if (on && !was && get().channels.length) void get().loadAllFeeds();
+  },
+
+  loadAllFeeds: async () => {
+    // Every channel's feed, without changing the selected channel; the thread/message handlers keep them current after this.
+    const ids = get().channels.map((c) => c.id);
+    const feeds = await Promise.all(ids.map(async (c) => [c, await api<Feed>(`/api/channels/${c}/feed`)] as const));
+    const live = feeds.flatMap(([, f]) => f.threads).filter((t) => !t.ended_at);
+    set((s) => ({
+      feeds: { ...s.feeds, ...Object.fromEntries(feeds) },
+      threads: { ...Object.fromEntries(live.map((t) => [t.id, t])), ...s.threads },
+    }));
+    await Promise.all(
+      live.map(async (t) => {
+        const msgs = await api<Msg[]>(`/api/threads/${t.id}/messages`);
+        set((s) => ({ threadMsgs: { ...s.threadMsgs, [t.id]: mergeMsgs(s.threadMsgs[t.id] ?? [], msgs) } }));
+      }),
+    );
+  },
 
   bootstrap: async () => {
     const b = await api<{
@@ -100,6 +128,7 @@ export const useStore = create<State>((set, get) => ({
       banner: b.banner,
     });
     await get().selectChannel(get().channel);
+    if (get().allFeeds) await get().loadAllFeeds();
   },
 
   selectChannel: async (id) => {
@@ -170,6 +199,8 @@ export const useStore = create<State>((set, get) => ({
   },
 
   connect: () => {
+    // Every page root calls this; a skin switch must not open a second socket.
+    if (socket && socket.readyState <= WebSocket.OPEN) return;
     const open = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
       socket = new WebSocket(`${proto}://${location.host}/ws`);
@@ -199,6 +230,9 @@ export const useStore = create<State>((set, get) => ({
           break;
         case "banner":
           set({ banner: ev.text });
+          break;
+        case "news":
+          set({ news: ev.lines });
           break;
         case "typing":
           set((s) => {

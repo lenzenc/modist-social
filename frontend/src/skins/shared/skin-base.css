@@ -1,0 +1,50 @@
+/* Shared ground for every alternate skin. Scoped to html[data-skin] so it is inert on the default UI. */
+html[data-skin] {
+  color-scheme: dark;
+  --badge-bg: rgb(245 158 11 / 0.18);
+  --badge-ink: #fbbf24;
+}
+html[data-skin] body {
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-body, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+}
+html[data-skin] .font-display { font-family: var(--font-display, inherit); }
+html[data-skin] .font-mono { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
+
+/* Neon sign */
+.neon {
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--neon, #ffb15a);
+  text-shadow:
+    0 0 4px var(--neon, #ffb15a),
+    0 0 12px var(--neon, #ffb15a),
+    0 0 28px var(--neon-glow, rgb(255 140 40 / 0.6));
+  animation: neon-flicker 9s infinite;
+}
+.neon.off {
+  color: rgb(255 255 255 / 0.18);
+  text-shadow: none;
+  animation: none;
+}
+@keyframes neon-flicker {
+  0%, 18%, 22%, 25%, 53%, 57%, 100% { opacity: 1; }
+  20%, 24%, 55% { opacity: 0.55; }
+}
+
+/* Ticker */
+.ticker { overflow: hidden; white-space: nowrap; mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent); }
+.ticker-track { display: inline-block; padding-left: 100%; animation: ticker 60s linear infinite; }
+.ticker:hover .ticker-track { animation-play-state: paused; }
+@keyframes ticker { to { transform: translateX(-100%); } }
+
+/* Breathing live border and pulsing halo */
+.breathe { animation: breathe 3.2s ease-in-out infinite; }
+@keyframes breathe { 0%, 100% { box-shadow: 0 0 0 0 var(--live-glow, rgb(52 211 153 / 0)); } 50% { box-shadow: 0 0 0 4px var(--live-glow, rgb(52 211 153 / 0.18)); } }
+.halo-pulse { animation: halo 1.6s ease-in-out infinite; }
+@keyframes halo { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .neon, .ticker-track, .breathe, .halo-pulse { animation: none; }
+}

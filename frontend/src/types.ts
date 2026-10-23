@@ -67,8 +67,24 @@ export interface GodState extends GodAssessment {
   fade: number;
 }
 
+/** The room around the people: deterministic from the date, so it costs nothing. */
+export interface Room {
+  weather: string;
+  noise: string;
+  trivia: boolean;
+  song: [string, string] | null;
+  game: { team: string; opp: string; start: string; live: boolean; score: [number, number] } | null;
+}
+
+export interface MenuItem {
+  name: string;
+  style: string | null;
+  abv: number | null;
+}
+
 export interface Clock {
   sim_now: string;
+  room?: Room;
   speed: number;
   effective_speed: number;
   crowd_level: number;
@@ -142,6 +158,8 @@ export interface Profile extends Person {
   }[];
   /** How they feel right now; null when they're not in the taproom. */
   state: { reason: string; mood: number; buzz: number; battery: number; need: string; thought: string; drinks: number; tier: string; cut_off: boolean; on_water: boolean; slops: string[]; cap: number; spent: number } | null;
+  /** How the shift is going for a bartender on the bar; null otherwise. */
+  shift: { mood: number; energy: string; rough: string; served: number; wrong: number; spills: number; peeve: string; gripe: string } | null;
   /** What they like to drink and what they can spend; null for staff. */
   taste: { favorites: string[]; tired_of: string[]; budget: "tight" | "ok" | "flush"; owes: Record<string, number> } | null;
   lately: string;
@@ -160,4 +178,5 @@ export type WsEvent =
   | { type: "banner"; text: string }
   | { type: "relationships"; people: string[] }
   | { type: "person"; person: Person }
+  | { type: "news"; lines: string[] }
   | { type: "sale"; payment_id: number; person_id: string; status: string };

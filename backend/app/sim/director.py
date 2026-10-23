@@ -365,6 +365,19 @@ class Director:
             "paused": self.clock.paused, "open": is_open(now),
             "on_shift": [b for b in (self.shift or ())], "budget_paused": self.budget_paused,
             "crowd": sum(1 for p in self.patrons() if p.present),
+            "room": self.room_view(now),
+        }
+
+    def room_view(self, now: datetime) -> dict:
+        """The room around the people, for the UI: all deterministic from the date, so it costs nothing."""
+        guests = sum(1 for p in self.patrons() if p.present)
+        g = environment.game_on(now)
+        song = self.song(now)
+        return {
+            "weather": environment.weather(now), "noise": environment.noise(guests),
+            "trivia": environment.trivia_on(now), "song": list(song) if song else None,
+            "game": {"team": g.team, "opp": g.opp, "start": g.start.isoformat(),
+                     "live": environment.live(g, now), "score": list(environment.score(g, now))} if g else None,
         }
 
     def god_view(self) -> dict | None:
@@ -1304,6 +1317,7 @@ class Director:
                 self.news_day, self.news_retry_at = "", now + timedelta(hours=1)
             return
         self.news, self.news_for = lines, day
+        bus.publish({"type": "news", "lines": lines})
         async with Session() as s:
             for ln in lines:
                 s.add(NewsItem(sim_day=day, text=ln))
@@ -1491,6 +1505,7 @@ class Director:
 
         if self.news and self.news_for != day:
             self.news, self.news_retry_at = [], None  # yesterday's headlines are not today's
+            bus.publish({"type": "news", "lines": []})
         if self.news_day != day and now.hour >= 10 and (self.news_retry_at is None or now >= self.news_retry_at):
             self.news_day = day
             self.spawn(self.news_desk(day))

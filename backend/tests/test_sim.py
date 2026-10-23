@@ -213,6 +213,13 @@ def test_crowd_control_is_clamped_and_reported():
     assert d.crowd == 3.0
 
 
+def test_clock_event_carries_the_room():
+    room = _director().clock_event()["room"]
+    assert set(room) == {"weather", "noise", "trivia", "song", "game"}
+    assert isinstance(room["weather"], str) and room["weather"]
+    assert room["game"] is None or {"team", "opp", "start", "live", "score"} <= set(room["game"])
+
+
 def test_overnight_skip_only_when_closed_empty_and_idle():
     import asyncio
 
