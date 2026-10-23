@@ -25,9 +25,17 @@ def _day(pred, n=400):
 
 @pytest.fixture(autouse=True)
 def clean_board():
-    menu.set_released([])
+    menu.set_board(menu.default_board())
     yield
-    menu.set_released([])
+    menu.set_board(menu.default_board())
+
+
+NEW = {"name": "Lantern Light", "kind": "beer", "style": "Amber Lager", "abv": 5.2, "thc_mg": None, "mainstay": False, "note": "a toasty amber lager"}
+NEW_THC = {"name": "MELT Mango", "kind": "thc_seltzer", "style": "THC sparkling beverage", "abv": None, "thc_mg": 10, "mainstay": False, "note": "mango"}
+
+
+def _add(*entries):
+    menu.set_board(menu.default_board() + list(entries))
 
 
 def _room():
@@ -151,23 +159,19 @@ def test_nobody_buys_before_the_guest_has_settled_in():
 # ---------------------------------------------------------------- new beers
 
 
-def test_a_release_joins_the_board_and_the_tap_list_for_good():
-    entry = occasions.release_pool()[0]
-    assert entry["name"] not in menu.names()
-    menu.set_released([entry])
-    assert entry["name"] in menu.names() and entry["name"] in menu.render_tap_list()
-    assert menu.match(f"a pint of {entry['name']}") == entry["name"] and menu.abv(entry["name"]) == entry["abv"]
-    assert all("blurb" not in x for x in menu.drinks())
+def test_a_new_drink_is_a_release_for_the_night_it_arrives():
+    _add(NEW)
+    assert NEW["name"] in menu.names() and NEW["name"] in menu.render_tap_list()
+    assert menu.match(f"a pint of {NEW['name']}") == NEW["name"] and menu.abv(NEW["name"]) == NEW["abv"]
+    released = [{"name": NEW["name"], "day": "2026-10-22"}]
+    assert occasions.release_tonight(released, datetime(2026, 10, 22, 18))["name"] == NEW["name"]
+    assert occasions.release_tonight(released, datetime(2026, 10, 23, 18)) is None
+    assert occasions.release_entry(NEW["name"])["blurb"] == NEW["note"]
 
 
-def test_releases_come_every_other_thursday_in_order():
-    thursdays = [d for d in (D0 + timedelta(days=i) for i in range(60)) if occasions.release_due(d)]
-    assert all(d.weekday() == 3 for d in thursdays) and 3 <= len(thursdays) <= 5
-    assert all((b - a).days == 14 for a, b in zip(thursdays, thursdays[1:], strict=False))
-    first = occasions.next_release([])
-    assert occasions.next_release([{"name": first["name"], "day": "2026-10-22"}])["name"] != first["name"]
-    assert occasions.release_tonight([{"name": first["name"], "day": "2026-10-22"}], datetime(2026, 10, 22, 18))["name"] == first["name"]
-    assert occasions.release_tonight([{"name": first["name"], "day": "2026-10-22"}], datetime(2026, 10, 23, 18)) is None
+def test_a_release_that_left_the_board_is_no_release():
+    released = [{"name": "Gone Beer", "day": "2026-10-22"}]
+    assert occasions.release_entry("Gone Beer") is None and occasions.releases_tonight(released, datetime(2026, 10, 22, 18)) == []
 
 
 def test_a_curious_guest_goes_for_the_new_beer_on_release_night():
@@ -185,13 +189,23 @@ def test_a_curious_guest_goes_for_the_new_beer_on_release_night():
 def test_the_release_is_announced_once_and_enters_the_history():
     d = _room()
     d.clock = SimClock(start=datetime(2026, 10, 22, 18))
-    d.released = [{"name": "Lantern Light", "day": "2026-10-22"}]
-    menu.set_released([occasions.release_entry("Lantern Light")])
+    _add(NEW, NEW_THC)
+    d.released = [{"name": NEW["name"], "day": "2026-10-22"}, {"name": NEW_THC["name"], "day": "2026-10-22"}]
     now = d.clock.now()
     _run(d.calendar_step(now, "2026-10-22"))
     _run(d.calendar_step(now, "2026-10-22"))
     assert sum("Lantern Light" in p for p in d.posts) == 1
-    assert [h["kind"] for h in d.history] == ["release"]
+    assert sum("MELT Mango" in p and "10 mg THC" in p for p in d.posts) == 1  # a THC drink has no ABV and must not break the post
+    assert [h["kind"] for h in d.history] == ["release", "release"]
+
+
+def test_a_drink_that_came_off_the_board_is_announced_once():
+    d = _room()
+    d.clock = SimClock(start=datetime(2026, 10, 22, 18))
+    d.gone = ["Old Favorite"]
+    _run(d.calendar_step(d.clock.now(), "2026-10-22"))
+    _run(d.calendar_step(d.clock.now(), "2026-10-22"))
+    assert sum("Old Favorite" in p for p in d.posts) == 1 and d.gone == []
 
 
 # ---------------------------------------------------------------- moving away

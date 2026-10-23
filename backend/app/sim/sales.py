@@ -10,7 +10,7 @@ PRICE_CENTS = 800
 HAPPY_PRICE_CENTS = 400
 HAPPY_DAYS = {6, 0, 1, 2}  # Sun, Mon, Tue, Wed
 HAPPY_END_HOUR = 18
-SPECIALS_PER_DAY = 4
+SPECIALS_PER_DAY = 3  # one mainstay beer and two other beers
 
 TIPS = (0, 18, 20, 25)
 TIP_WEIGHTS = {
@@ -27,9 +27,13 @@ def happy_hour(t: datetime) -> bool:
 
 
 def specials(day: date | datetime) -> list[str]:
-    """The half-price selection for a day: random but fixed per date, so a restart changes nothing."""
+    """The half-price selection for a day: a mainstay beer and two other beers, random but fixed per date so a restart changes nothing."""
     d = day.date() if isinstance(day, datetime) else day
-    return sorted(random.Random(f"specials:{d.isoformat()}").sample(menu.names(), SPECIALS_PER_DAY))
+    rng = random.Random(f"specials:{d.isoformat()}")
+    beers = sorted(menu.beers())
+    picks = [rng.choice(sorted(menu.beers(mainstay=True)) or beers)] if beers else []
+    rest = [b for b in beers if b not in picks]
+    return sorted(picks + rng.sample(rest, min(SPECIALS_PER_DAY - len(picks), len(rest))))
 
 
 def price(drink: str, t: datetime) -> tuple[int, int, bool]:

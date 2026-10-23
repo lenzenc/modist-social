@@ -17,7 +17,7 @@ from app.llm.usage import usage
 from app.seed.loader import color_for
 from app.sim import beats, bonds, drunk, dynamics, environment, human, life, newcomers, occasions, realism, staff, taste
 from app.sim import god as godmode
-from app.sim import groups, menu, sales, seating
+from app.sim import groups, menu, sales, seating, taplist
 from app.sim.clock import DEFAULT_START, SimClock, is_open, launch_time, open_close
 from app.sim.schedule import ARRIVAL_BOOST, arrival_rate, on_shift
 from app.sim.social import Social
@@ -89,7 +89,8 @@ class Director:
         self.history: list[dict] = []  # nights the room remembers: see sim.occasions
         self.moved: dict[str, dict] = {}  # pid -> {"city", "day"} for a regular who has moved away
         self.farewell: dict | None = None  # the move in the works: see occasions.roll_farewell
-        self.released: list[dict] = []  # beers that have joined the board: {"name", "day"}
+        self.released: list[dict] = []  # drinks that have joined the board: {"name", "day"}
+        self.gone: list[str] = []  # drinks that left the board at the last start, announced once the bar is open
         self.calendar_log: list[dict] = []  # one row per day: what the calendar put on it, for the scorecard
         self.day_events: set[str] = set()  # kinds of occasion that happened today
         self.toast: dict[str, str] = {}  # pid -> "birthday" | "farewell": a friend owes them a round tonight
@@ -150,9 +151,7 @@ class Director:
             self.farewell = await get_state(s, "farewell", None) or None
             self.released = await get_state(s, "released", []) or []
             self.calendar_log = await get_state(s, "calendar_log", []) or []
-        if self.released:
-            menu.set_released([e for r in self.released if (e := occasions.release_entry(r["name"]))])
-            self.world_text = world_prompt(settings.brewery_city)
+            saved_board = await get_state(s, "board", None) or None
         for p in self.people.values():
             self.persona_text[p.id] = persona_prompt(p, self.lives.get(p.id, ""))
         await self.social.load()
@@ -166,6 +165,7 @@ class Director:
             self.crowd = saved.get("crowd", 1.0)
             self.crowd_days = saved.get("crowd_days", {})
             await self.save_clock()
+        await self.sync_board(saved_board)
         self.god = godmode.normalize(saved_god, self.clock.now())
         await self.load_life()
         today = self.clock.now().strftime("%Y-%m-%d")
@@ -180,6 +180,33 @@ class Director:
         if rows:
             self.news, self.news_day, self.news_for = [r.text for r in rows], today, today
         log.info("loaded %d people, sim time %s", len(self.people), self.clock.now())
+
+    async def sync_board(self, saved: list[dict] | None) -> None:
+        """At each start, read what is on tap at modistbrewing.com: new drinks are tonight's releases and gone ones leave the board.
+
+        With no saved board the shipped snapshot is the starting point; if the site can't be read the board stays as it was.
+        """
+        old = saved or menu.default_board()
+        new = await taplist.fetch_board(old) if settings.tap_sync else None
+        day = self.clock.now().strftime("%Y-%m-%d")
+        board = new or old
+        if new:
+            added, removed = taplist.diff(old, new)
+            for d in added:
+                self.released.append({"name": d["name"], "day": day})
+            for d in removed:
+                self.gone.append(d["name"])
+                self.history.append(occasions.history_row(day, "board", f"the night {d['name']} came off the board", [], [d["name"].lower(), "off the board"]))
+            del self.history[:-occasions.HISTORY_KEEP]
+            log.info("tap list: %d on tap, %d new, %d gone", len(new), len(added), len(removed))
+        menu.set_board(board)
+        on = {d["name"] for d in board}
+        self.released = [r for r in self.released if r["name"] in on]
+        self.world_text = world_prompt(settings.brewery_city)
+        async with Session() as s:
+            await set_state(s, "board", board)
+            await set_state(s, "released", self.released)
+            await s.commit()
 
     async def load_life(self) -> None:
         """Events still on someone's mind, or waiting on a follow-on."""
@@ -244,12 +271,8 @@ class Director:
                 and (r := self.social.rel(p.id, q.id)).familiarity >= 50 and r.affinity >= 0]
 
     async def occasion_day(self, now: datetime, day: str) -> None:
-        """Once a sim day: a new beer, whose birthday it is, and the move a regular may be planning."""
+        """Once a sim day: whose birthday it is, and the move a regular may be planning."""
         d = now.date()
-        if occasions.release_due(d) and not occasions.release_tonight(self.released, now) and (r := occasions.next_release(self.released)):
-            self.released.append({"name": r["name"], "day": day})
-            menu.set_released([e for x in self.released if (e := occasions.release_entry(x["name"]))])
-            self.world_text = world_prompt(settings.brewery_city)
         self.toast = {}
         for pid in self.birthdays_today():
             self.toast[pid] = "birthday"
@@ -1754,10 +1777,10 @@ class Director:
     async def taste_pour(self, b: PersonState, sh: staff.Shift) -> None:
         """A bartender tastes the product: a 4oz pour on the house, never rung up."""
         now = self.clock.now()
-        names = [n for n in menu.names() if menu.abv(n) != 0]
+        names = menu.beers()
         if not names:
             return
-        new = [r["name"] for r in self.released if occasions.release_tonight([r], now)]
+        new = [r["name"] for r in occasions.releases_tonight(self.released, now)]
         name, why = staff.pick_pour(b.persona, new, names, self.rng)
         b.buzz = human.add_drink(b.buzz, b.persona, staff.pour_strength(menu.abv(name)))
         sh.pours += 1
@@ -1879,11 +1902,15 @@ class Director:
         if (booked := occasions.party_on(now)) and f"{day}-party" not in flags:
             flags.add(f"{day}-party")
             await self.post("door", f"🎉 {booked.what.capitalize()} has the {booked.area.replace('-', ' ')} until {booked.end.strftime('%-I%p').lower()}.", kind="system")
-        if (r := occasions.release_tonight(self.released, now)) and f"{day}-release" not in flags:
+        if (new := occasions.releases_tonight(self.released, now)) and f"{day}-release" not in flags:
             flags.add(f"{day}-release")
-            await self.post("door", f"🍺 New on the board tonight: {r['name']} ({r['style']}, {r['abv']:g}%). {r['blurb'].capitalize()}.", kind="system")
-            self.history.append(occasions.history_row(day, "release", f"the night {r['name']} hit the board", [], [r["name"].lower(), "release", "new beer"]))
+            for r in new:
+                strength = f", {label}" if (label := menu.strength_label(r)) else ""
+                await self.post("door", f"🍺 New on the board tonight: {r['name']} ({r['style']}{strength}). {r['blurb'].rstrip('.')}.", kind="system")
+                self.history.append(occasions.history_row(day, "release", f"the night {r['name']} hit the board", [], [r["name"].lower(), "release", "new drink"]))
             del self.history[:-occasions.HISTORY_KEEP]
+        while self.gone:
+            await self.post("door", f"🪣 {self.gone.pop(0)} has kicked and come off the board.", kind="system")
         inc = occasions.incident_for(now.date())
         if inc is None:
             return
@@ -2198,8 +2225,8 @@ class Director:
         rec = self.taste_of(p)
         specials = sales.specials(now) if sales.happy_hour(now) else []
         tight = taste.budget(p.persona) == "tight" or (p.cap > 0 and p.spent >= 0.6 * p.cap)
-        release = occasions.release_tonight(self.released, now)
-        i = taste.intend(rec, p.persona, self.usual_for(p), self.rng, day, specials=specials, tight=tight, release=release["name"] if release else "")
+        fresh = occasions.releases_tonight(self.released, now)
+        i = taste.intend(rec, p.persona, self.usual_for(p), self.rng, day, specials=specials, tight=tight, release=self.rng.choice(fresh)["name"] if fresh else "")
         if p.first_visit and not t.again and i.kind != "rec" and self.rng.random() < 0.5:
             i = taste.Intent("rec", "", "you're new here and the bartender offered a taster")
         t.intent = i
@@ -2457,6 +2484,7 @@ class Director:
             await set_state(s, "moved", self.moved)
             await set_state(s, "farewell", self.farewell)
             await set_state(s, "released", self.released)
+            await set_state(s, "board", menu.drinks())
             await set_state(s, "calendar_log", self.calendar_log)
             await set_state(s, "clock", {
                 "sim_now": self.clock.now().isoformat(), "speed": self.clock.speed,

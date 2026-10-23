@@ -9,10 +9,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from functools import lru_cache
 
-import yaml
-
-from app.seed.loader import HERE
-from app.sim import environment
+from app.sim import environment, menu
 
 LOG_KEEP = 120
 HISTORY_KEEP = 60
@@ -185,29 +182,20 @@ def music_off(now: datetime) -> bool:
     return band_on(now) is not None or outage(now)
 
 
-@lru_cache(maxsize=1)
-def release_pool() -> list[dict]:
-    return yaml.safe_load((HERE / "releases.yaml").read_text())
-
-
-def release_due(d: date) -> bool:
-    """Every other Thursday."""
-    return d.weekday() == 3 and (d.toordinal() // 7) % 2 == 0
-
-
-def next_release(released: list[dict]) -> dict | None:
-    have = {r["name"] for r in released}
-    return next((r for r in release_pool() if r["name"] not in have), None)
-
-
 def release_entry(name: str) -> dict | None:
-    return next((r for r in release_pool() if r["name"] == name), None)
+    """A drink on the board as a release: its details, with the note as the blurb."""
+    d = next((d for d in menu.drinks() if d["name"] == name), None)
+    return {**d, "blurb": d["note"]} if d else None
+
+
+def releases_tonight(released: list[dict], now: datetime) -> list[dict]:
+    """The drinks that joined the board today (the first start of a sim day can bring several)."""
+    day = now.strftime("%Y-%m-%d")
+    return [e for r in released if r["day"] == day and (e := release_entry(r["name"]))]
 
 
 def release_tonight(released: list[dict], now: datetime) -> dict | None:
-    day = now.strftime("%Y-%m-%d")
-    name = next((r["name"] for r in released if r["day"] == day), "")
-    return release_entry(name) if name else None
+    return next(iter(releases_tonight(released, now)), None)
 
 
 # ---------------------------------------------------------------- people
@@ -313,7 +301,8 @@ def room_bits(now: datetime, released: list[dict]) -> list[str]:
     if p := party_on(now):
         bits.append(f"{p.what.capitalize()} has the {p.area.replace('-', ' ')} booked until {p.end.strftime('%-I%p').lower()}.")
     if r := release_tonight(released, now):
-        bits.append(f"Tonight is the release of {r['name']} ({r['style']}), new on the board.")
+        more = len(releases_tonight(released, now)) - 1
+        bits.append(f"Tonight is the release of {r['name']} ({r['style']}), new on the board" + (f", along with {more} more." if more else "."))
     if line := incident_line(now):
         bits.append(line)
     return bits

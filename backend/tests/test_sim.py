@@ -137,11 +137,12 @@ def test_stools_are_unique_and_prefer_neighbours():
 def test_menu_matches_the_supplied_board():
     from app.sim import menu
 
-    assert len(menu.names()) == 52 and len(set(menu.names())) == 52
+    assert len(menu.names()) == 29 and len(set(menu.names())) == 29
     assert menu.match("a pint of fallforge please") == "Fallforge"
     assert menu.match("Pina Colada Slushy") == "Piña Colada Slushy"
-    assert menu.match("Can I get the Dreamyard?") == "Dreamyard"
-    assert menu.match("Pineapple Dreamyard, please") == "Pineapple Dreamyard"  # longest name wins
+    assert menu.match("Can I get the Dreamyard?") == "DREAMYARD"
+    assert menu.match("a MELT POP Citrus Punch") == "MELT POP Citrus Punch"  # longest name wins over MELT
+    assert {d["kind"] for d in menu.drinks()} == {"beer", "hard_seltzer", "thc_seltzer", "thc_soda"}
     assert menu.match("Hazy Daze") is None and menu.match("") is None
 
 
