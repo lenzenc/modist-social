@@ -5,8 +5,8 @@ from datetime import date, datetime, time, timedelta
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
-from app.db.models import BondChange, LifeEvent, Memory, Message, Person, Session, Thread, get_state
-from app.sim import beats, bonds, drunk, gossip, life, realism
+from app.db.models import BondChange, LifeEvent, Memory, Message, Person, SaleItem, Session, Thread, get_state
+from app.sim import beats, bonds, drunk, gossip, life, realism, taste
 from app.sim.state import display_name
 
 router = APIRouter(prefix="/api/realism")
@@ -55,6 +55,10 @@ async def summary(period: str = "day", date: str = ""):
         names = {pid: display_name(n) for pid, n in (await s.execute(select(Person.id, Person.name))).all()}
         drunk_log = [h for h in (await get_state(s, "drunk_log", []) or []) if start.isoformat() <= h["day"] < end.isoformat()]
         gossip_log = [e for e in (await get_state(s, "gossip_log", []) or []) if start.isoformat() <= e["day"] < end.isoformat()]
+        taste_log = [e for e in (await get_state(s, "taste_log", []) or []) if start.isoformat() <= e["day"] < end.isoformat()]
+        sold = (await s.execute(select(SaleItem.person_id, SaleItem.drink).where(
+            SaleItem.sim_ts >= datetime.combine(start, time.min), SaleItem.sim_ts < datetime.combine(end, time.min),
+            SaleItem.buyer_id.is_(None)).order_by(SaleItem.id))).all()
         heard = (await s.scalars(select(Memory).where(
             Memory.source_id.is_not(None), Memory.sim_ts >= datetime.combine(start, time.min),
             Memory.sim_ts < datetime.combine(end, time.min)))).all()
@@ -103,6 +107,7 @@ async def summary(period: str = "day", date: str = ""):
         "range": {"start": start.isoformat(), "end": (end - timedelta(days=1)).isoformat(), "period": period},
         **result, "series": series, "life": life.continuity(in_range, events, names),
         "drunk": drunk.consequences(drunk_log),
+        "taste": taste.habits(taste_log, [(pid, drink) for pid, drink in sold]),
         "quiet": beats.quiet_share(len(acted), len(in_range), sum(1 for a in acted if a is None)),
         "gossip": {**gossip.spread(rumor_rows, gossip_log), "trails": _trails(top, trails, names)},
     }

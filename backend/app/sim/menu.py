@@ -61,6 +61,12 @@ def _section(d: dict) -> int:
     return len(SECTIONS) - 1
 
 
+def section_of(name: str) -> int:
+    """Which tap-list section a drink sits in (a rough style bucket); -1 for water or an unknown name."""
+    d = next((x for x in drinks() if x["name"] == name), None)
+    return _section(d) if d else -1
+
+
 def render_tap_list() -> str:
     lines = []
     for i, (title, _) in enumerate(SECTIONS):

@@ -137,6 +137,7 @@ class SaleItem(Base):
     price: Mapped[int] = mapped_column(Integer)
     happy_hour: Mapped[bool] = mapped_column(Boolean, default=False)
     sim_ts: Mapped[datetime] = mapped_column(DateTime, index=True)
+    buyer_id: Mapped[str | None] = mapped_column(String(16), nullable=True)  # who paid, when someone bought the round
 
 
 class NewsItem(Base):
@@ -191,6 +192,7 @@ _COLUMNS = (
     "ALTER TABLE relationship ADD COLUMN IF NOT EXISTS crush_by VARCHAR(16) NOT NULL DEFAULT ''",
     "ALTER TABLE relationship ADD COLUMN IF NOT EXISTS mentor_id VARCHAR(16) NOT NULL DEFAULT ''",
     "ALTER TABLE message ADD COLUMN IF NOT EXISTS thought TEXT NULL",
+    "ALTER TABLE sale_item ADD COLUMN IF NOT EXISTS buyer_id VARCHAR(16) NULL",
     "CREATE INDEX IF NOT EXISTS ix_message_sim_ts ON message (sim_ts)",
     "UPDATE thread SET channel = 'inside-tables' WHERE channel = 'high-tops'",
     "UPDATE message SET channel = 'inside-tables' WHERE channel = 'high-tops'",

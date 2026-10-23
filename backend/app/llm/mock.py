@@ -79,6 +79,14 @@ _DISTORT = [("thinking about", "definitely"), ("last week", "the other day"), ("
 _HEARD = re.compile(r"^(?P<teller>[^:]+): .*?You know what I heard about (?P<about>[^?]+)\? (?P<claim>.+)$")
 _SURE = ["certain", "fairly", "fairly", "doubtful"]
 _BEERS = menu.names()
+_ASK_REC = ["What's good today? Surprise me.", "I'm not sure what I feel like. What would you pour me?", "Got a recommendation? I'm open to anything."]
+
+
+def _answer_suggestion(want: str, suggest: str) -> str:
+    """The guest's reply to a recommendation: taking it, or turning it down for something else."""
+    if want == suggest:
+        return f"That sounds great, I'll take the {want}."
+    return f"Hm, not today. I'll just have the {want}."
 
 
 def _distort(claim: str, r: random.Random) -> str:
@@ -122,18 +130,32 @@ class MockLLM:
             say = f"Ugh, {req.life.rstrip('.')}."
         action, target, drink = "none", "", ""
         if req.kind == "order" and req.again and req.is_bartender and not req.last_line:
-            say = "Can I get you another?"
+            say = f"Can I get you another? The {req.suggest} is drinking really well tonight." if req.suggest else "Can I get you another?"
         elif req.kind == "order" and req.again and not req.is_bartender and req.last_line:
-            if r.random() < 0.75:
+            if req.want and req.suggest:
+                drink, say = req.want, _answer_suggestion(req.want, req.suggest)
+            elif req.want and r.random() < 0.85:
+                drink = req.want
+                say = f"Yes please, the {drink} for me."
+            elif not req.want and r.random() < 0.75:
                 drink = r.choice(_BEERS)
                 say = f"Yes please, another {drink}."
             else:
                 say = "I'm good for now, thanks."
         elif req.kind == "order" and not req.last_line and not req.is_bartender:
-            drink = r.choice(_BEERS)
-            say = f"Can I get a {drink}, please?"
+            if req.ask_rec:
+                say = r.choice(_ASK_REC)
+            else:
+                drink = req.want or r.choice(_BEERS)
+                say = f"Can I get a {drink}, please?"
         elif req.kind == "order" and req.is_bartender and not req.last_line:
             say = "Welcome in. What can I get you?"
+        elif req.kind == "order" and req.is_bartender and req.suggest and req.last_line:
+            drink, say = req.suggest, f"Try the {req.suggest}: I think it's right up your alley."
+        elif req.kind == "order" and not req.is_bartender and req.suggest and req.want and req.last_line:
+            drink, say = req.want, _answer_suggestion(req.want, req.suggest)
+        if req.kind == "order" and not req.is_bartender and req.treat and say:
+            say = f"{say.rstrip('.!')}. And a round for {req.treat}, on me."
         if req.kind == "order" and req.is_bartender and req.serve in ("cut", "slow"):
             say = r.choice(_CUT if req.serve == "cut" else _SLOW)
         elif req.kind == "order" and not req.is_bartender and (req.water or req.serve == "cut"):

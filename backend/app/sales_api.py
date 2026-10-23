@@ -90,6 +90,10 @@ async def summary(period: str = "day", date: str = "", drink: str = "", person_i
             select(SaleItem.person_id, func.count(SaleItem.id), func.sum(SaleItem.price))
             .where(*item_where).group_by(SaleItem.person_id)
         )).all()
+        bought = {pid: int(n) for pid, n in (await s.execute(
+            select(SaleItem.buyer_id, func.count(SaleItem.id)).where(*item_where, SaleItem.buyer_id.is_not(None))
+            .group_by(SaleItem.buyer_id)
+        )).all()}
         tips_by_person = {pid: (tip, tabs, cards) for pid, tip, tabs, cards in (await s.execute(
             select(Payment.person_id, func.sum(Payment.tip), func.sum(case((Payment.kind == "tab", 1), else_=0)),
                    func.sum(case((Payment.kind == "tab", 0), else_=1))).where(*pay_where).group_by(Payment.person_id)
@@ -98,7 +102,7 @@ async def summary(period: str = "day", date: str = "", drink: str = "", person_i
     for pid, n, v in person_rows:
         tip, tabs, cards = tips_by_person.get(pid, (0, 0, 0))
         by_person.append({"id": pid, "name": names.get(pid, pid), "drinks": n, "sales": int(v), "tips": int(tip or 0),
-                          "tabs": int(tabs or 0), "per_drink": int(cards or 0)})
+                          "tabs": int(tabs or 0), "per_drink": int(cards or 0), "bought_for_others": bought.get(pid, 0)})
     by_person.sort(key=lambda r: (-r["sales"], r["name"]))
 
     series = []
@@ -142,7 +146,8 @@ def _tx(p: Payment, items: list[SaleItem], names: dict[str, str]) -> dict:
         "bartender": names.get(p.bartender_id or "", ""), "subtotal": p.subtotal, "tip_pct": p.tip_pct, "tip": p.tip,
         "total": p.total, "card": f"{p.card_brand} ••{p.card_last4}",
         "items": [{"drink": i.drink, "price": i.price, "list_price": i.list_price, "happy_hour": i.happy_hour,
-                   "at": i.sim_ts.isoformat()} for i in items],
+                   "at": i.sim_ts.isoformat(), "for": names.get(i.person_id, i.person_id) if i.buyer_id else None}
+                  for i in items],
     }
 
 

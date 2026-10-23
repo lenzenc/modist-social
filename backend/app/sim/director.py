@@ -15,7 +15,7 @@ from app.config import settings
 from app.db.models import LifeEvent, Message, NewsItem, Payment, Person, SaleItem, Session, SimState, Thread, get_state, set_state
 from app.llm.usage import usage
 from app.seed.loader import color_for
-from app.sim import beats, bonds, drunk, environment, human, life, newcomers, realism
+from app.sim import beats, bonds, drunk, environment, human, life, newcomers, realism, taste
 from app.sim import god as godmode
 from app.sim import groups, menu, sales, seating
 from app.sim.clock import DEFAULT_START, SimClock, is_open, launch_time, open_close
@@ -79,6 +79,8 @@ class Director:
         self.romance: dict[str, int] = {}  # sim day -> crushes and couples formed that day
         self.hangovers: dict[str, dict] = {}  # pid -> how their last drunk night went: see drunk.record
         self.drunk_log: list[dict] = []  # every drunk visit lately, for the scorecard
+        self.tastes: dict[str, taste.TasteRec] = {}  # pid -> what they like to drink: see sim.taste
+        self.taste_log: list[dict] = []  # switches, suggestions, skipped rounds and rounds bought, for the scorecard
         self.gossip_cred: dict[str, int] = {}  # pid -> how far others can trust what they pass on: see sim.gossip
         self.gossip_log: list[dict] = []  # rumors that reached their subject or got corrected, for the scorecard
         self.beat_pool: dict[str, list[str]] = {}  # pid -> model-written idle beats not yet used
@@ -125,6 +127,8 @@ class Director:
             self.life_day = (await get_state(s, "life_day", {}) or {}).get("day", "")
             self.hangovers = await get_state(s, "hangovers", {}) or {}
             self.drunk_log = await get_state(s, "drunk_log", []) or []
+            self.tastes = {pid: taste.TasteRec.load(raw) for pid, raw in (await get_state(s, "taste", {}) or {}).items()}
+            self.taste_log = await get_state(s, "taste_log", []) or []
             self.gossip_cred = await get_state(s, "gossip_cred", {}) or {}
             self.gossip_log = await get_state(s, "gossip_log", []) or []
         for p in self.people.values():
@@ -182,6 +186,8 @@ class Director:
                 self.spawn(self.polish_event(p, rec))
         await self.bond_day(now, day)
         await self.morning_after(now, day)
+        for p in self.patrons():
+            taste.daily(self.taste_of(p), day)
         await self.save_clock()
 
     async def morning_after(self, now: datetime, day: str) -> None:
@@ -605,6 +611,41 @@ class Director:
         await self.join_thread(t, p)
         return True
 
+    # ---------------------------------------------------------------- taste and money
+
+    def taste_of(self, p: PersonState) -> taste.TasteRec:
+        """Someone's tastes, made from their persona the first time they are needed."""
+        if p.id not in self.tastes:
+            self.tastes[p.id] = taste.seed(p.persona, random.Random(f"taste:{p.id}"))
+        return self.tastes[p.id]
+
+    def log_taste(self, kind: str, p: PersonState, **extra) -> None:
+        self.taste_log.append({"kind": kind, "pid": p.id, "day": self.clock.now().strftime("%Y-%m-%d"), **extra})
+        del self.taste_log[:-taste.LOG_KEEP]
+
+    def broke(self, p: PersonState) -> bool:
+        """Another round would take them past what they meant to spend tonight."""
+        return p.drinks > 0 and p.cap > 0 and not taste.can_afford(p.spent, p.cap, sales.PRICE_CENTS)
+
+    def hold_off(self, p: PersonState) -> None:
+        """They stop here: no more rounds, and a small action to show it."""
+        p.drink_goal, p.next_drink_at = p.drinks, None
+        self.log_taste("skip", p, spent=p.spent, cap=p.cap)
+        self.spawn(self.beat(p, f"{p.short} checks {beats.pos(p)} card, thinks about it, and decides to hold off on another."))
+
+    def usual_for(self, p: PersonState) -> str:
+        """The drink they are most likely to be on: what they had last, otherwise their favourite."""
+        return p.drink if p.drink and p.drink != menu.WATER and p.drinks > 0 else ""
+
+    def pick_drink(self, p: PersonState, rng: random.Random | None = None) -> str:
+        """A drink for someone who is not ordering for themselves (a friend treated to a round, a party's first drink)."""
+        rng = rng or self.rng
+        now = self.clock.now()
+        tight = p.spent >= 0.6 * p.cap or taste.budget(p.persona) == "tight"
+        specials = sales.specials(now) if sales.happy_hour(now) else []
+        i = taste.intend(self.taste_of(p), p.persona, self.usual_for(p), rng, now.strftime("%Y-%m-%d"), specials=specials, tight=tight)
+        return i.drink or taste.recommend({}, self.taste_of(p), rng, now.strftime("%Y-%m-%d"), specials)
+
     def schedule_next_drink(self, p: PersonState, now: datetime) -> None:
         if p.drinks >= p.drink_goal:
             p.next_drink_at = None
@@ -615,6 +656,9 @@ class Director:
 
     def wants_round(self, p: PersonState, now: datetime) -> bool:
         if not p.present or p.next_drink_at is None or now < p.next_drink_at or p.drinks >= p.drink_goal or p.wants_leave:
+            return False
+        if self.broke(p):
+            self.hold_off(p)
             return False
         if p.leave_at and now >= p.leave_at - timedelta(minutes=10):
             return False
@@ -637,26 +681,73 @@ class Director:
         if guest is None:
             return
         now = self.clock.now()
+        self.settle_suggestion(t, guest)
+        if t.suggest and t.intent is not None and t.intent.kind == "rec":
+            self.log_taste("rec_taken" if t.order_drink == t.suggest else "rec_declined", guest, drink=t.suggest)
         if t.order_drink and (t.ordered or not t.again):
             drink = t.order_drink
             if drink != menu.WATER and drunk.service(guest) == "cut":
                 await self.cut_off(guest, bt, t)
                 drink = menu.WATER
             await self.charge(guest, drink, bt, t)
-            for pid in t.party:  # the rest of the party's first round rides on the leader's order
+            if t.treat:
+                await self.round_for(guest, t, bt)
+            for pid in ([] if t.treat else t.party):  # the rest of the party's first round rides on the leader's order
                 q = self.people[pid]
                 if q.present and q.drinks == 0:
-                    await self.charge(q, menu.match(q.persona.get("drink", "")) or self.rng.choice(menu.names()), bt, t)
+                    await self.charge(q, self.pick_drink(q), bt, t)
         elif t.again:
             # Passed on another: they want fewer drinks, and the bartender will not ask again right away.
             guest.drink_goal = max(guest.drinks, guest.drink_goal - 1)
             guest.next_drink_at = now + timedelta(minutes=30) if guest.drinks < guest.drink_goal else None
         else:
             guest.next_drink_at = now + timedelta(minutes=5)  # never settled on a drink; try again shortly
-        for pid in t.party:  # nobody in a party is left waiting on an order that never paid
+        for pid in ([] if t.treat else t.party):  # nobody in a party is left waiting on an order that never paid
             q = self.people[pid]
             if q.present and q.drinks == 0 and q.next_drink_at is None:
                 q.next_drink_at = now + timedelta(minutes=5)
+
+    async def round_for(self, buyer: PersonState, t: ThreadState, bt: str | None) -> None:
+        """The buyer pays for a drink for each friend who is still here and still being poured."""
+        now = self.clock.now()
+        mine = self.taste_of(buyer)
+        treated: list[PersonState] = []
+        for pid in t.party:
+            q = self.people[pid]
+            if not q.present or drunk.service(q) != "pour":
+                continue
+            await self.charge(q, self.pick_drink(q), bt, t, buyer=buyer)
+            treated.append(q)
+            theirs = self.taste_of(q)
+            mine.owes[q.id] = max(-taste.OWES_CAP, mine.owes.get(q.id, 0) - 1)
+            theirs.owes[buyer.id] = min(taste.OWES_CAP, theirs.owes.get(buyer.id, 0) + 1)
+            await self.social.add_memory(q.id, now, f"{buyer.short} bought me a drink.", [buyer.id], 4)
+            await self.social.apply_delta(q.id, buyer.id, 1, 3, "")
+        if treated:
+            await self.post(t.channel, f"🍻 {buyer.short} buys a round for {_names([q.short for q in treated])}.", kind="system", thread=t)
+            await self.social.add_memory(buyer.id, now, f"Bought a round for {_names([q.short for q in treated])}.", [q.id for q in treated], 4)
+            self.log_taste("round", buyer, to=[q.id for q in treated])
+            self.publish_relationships([buyer.id, *[q.id for q in treated]])
+
+    def treat_friends(self, p: PersonState, now: datetime) -> list[PersonState]:
+        """Friends here who would get a drink on someone's tab, if p feels like buying and can afford it; else none."""
+        friends = []
+        for q in self.patrons():
+            if q.id == p.id or not q.present or q.location != p.location or q.waiting or q.thread_id is not None or q.wants_leave:
+                continue
+            rel = self.social.rel(p.id, q.id)
+            if rel.familiarity >= 40 and rel.affinity >= 0 and not bonds.avoids(rel, now) and drunk.service(q) == "pour":
+                friends.append(q)
+        self.rng.shuffle(friends)
+        friends = friends[:taste.MAX_FRIENDS]
+        while friends and p.cap > 0 and not taste.can_afford(p.spent, p.cap, sales.PRICE_CENTS * (len(friends) + 1)):
+            friends.pop()
+        if not friends:
+            return []
+        mine = self.taste_of(p)
+        owed = sum(max(mine.owes.get(q.id, 0), 0) for q in friends)
+        flush = any(e.kind == "windfall" and life.freshness(e, now) > 0 for e in self.life.get(p.id, []))
+        return friends if taste.buys_round(p.persona, p.mood, p.buzz, owed, flush, self.rng, len(friends)) else []
 
     async def cut_off(self, p: PersonState, bartender_id: str | None, t: ThreadState) -> None:
         """The bartender stops serving them: no more rounds, water instead, and they head home before long."""
@@ -677,31 +768,35 @@ class Director:
         await self.post(t.channel, f"{p.short} gets a water.", kind="system", thread=t)
         self.publish_presence()
 
-    async def charge(self, p: PersonState, drink: str, bartender_id: str | None, t: ThreadState) -> None:
+    async def charge(self, p: PersonState, drink: str, bartender_id: str | None, t: ThreadState,
+                     buyer: PersonState | None = None) -> None:
+        """Ring up a drink for p. When `buyer` is given they pay for it (a round) and p only drinks it."""
         if drink == menu.WATER:
             await self.serve_water(p, t)
             return
         now = self.clock.now()
+        payer = buyer or p
         list_price, cost, happy = sales.price(drink, now)
-        brand, last4 = sales.card_for(p.id)
+        brand, last4 = sales.card_for(payer.id)
         async with Session() as s:
-            pay = await s.get(Payment, p.tab_id) if p.tab_id else None
+            pay = await s.get(Payment, payer.tab_id) if payer.tab_id else None
             if pay is None:
-                pay = Payment(person_id=p.id, bartender_id=bartender_id, kind="tab" if p.pay_mode == "tab" else "per_drink",
+                pay = Payment(person_id=payer.id, bartender_id=bartender_id, kind="tab" if payer.pay_mode == "tab" else "per_drink",
                               status="open", opened_at=now, card_brand=brand, card_last4=last4)
                 s.add(pay)
                 await s.flush()
                 if pay.kind == "tab":
-                    p.tab_id = pay.id
+                    payer.tab_id = pay.id
             s.add(SaleItem(payment_id=pay.id, person_id=p.id, bartender_id=bartender_id, thread_id=t.id, drink=drink,
-                           list_price=list_price, price=cost, happy_hour=happy, sim_ts=now))
+                           list_price=list_price, price=cost, happy_hour=happy, sim_ts=now, buyer_id=buyer.id if buyer else None))
             pay.subtotal += cost
             pay.bartender_id = bartender_id
             if pay.kind == "per_drink":
-                self._finalize(pay, p, now)
+                self._finalize(pay, payer, now)
             else:
                 pay.total = pay.subtotal
             await s.commit()
+        payer.spent += cost
         p.drinks += 1
         p.buzz = human.add_drink(p.buzz, p.persona, drunk.strength(menu.abv(drink)))
         p.peak_buzz = max(p.peak_buzz, p.buzz)
@@ -709,15 +804,38 @@ class Director:
         if p.drinks >= p.drink_goal and drunk.tier(p.buzz) in ("sober", "tipsy") and self.rng.random() < 0.1:
             p.drink_goal += 1  # one more for the road
         self.schedule_next_drink(p, now)
-        bus.publish({"type": "sale", "payment_id": pay.id, "person_id": p.id, "status": pay.status})
+        bus.publish({"type": "sale", "payment_id": pay.id, "person_id": payer.id, "status": pay.status})
         extra = " (happy hour)" if happy else ""
+        whose = f"{p.short}'s " if buyer else ""
         if pay.kind == "per_drink":
             tip = f", {pay.tip_pct}% tip" if pay.tip_pct else ", no tip"
-            text = f"{p.short} pays by card: {drink} {sales.money(cost)}{extra}{tip}."
+            text = f"{payer.short} pays by card: {whose}{drink} {sales.money(cost)}{extra}{tip}."
         else:
-            text = f"{p.short} puts {drink} on the tab ({sales.money(cost)}{extra}; {sales.money(pay.subtotal)} so far)."
+            text = f"{payer.short} puts {whose}{drink} on the tab ({sales.money(cost)}{extra}; {sales.money(pay.subtotal)} so far)."
         await self.post(t.channel, text, kind="system", thread=t)
+        await self.taste_after(p, drink, t, bartender_id, buyer)
         self.publish_presence()
+
+    async def taste_after(self, p: PersonState, drink: str, t: ThreadState, bartender_id: str | None, buyer: PersonState | None) -> None:
+        """How the drink landed: their tastes move, a rut can start to wear, and a suggestion that worked is remembered."""
+        now = self.clock.now()
+        day = now.strftime("%Y-%m-%d")
+        rec = self.taste_of(p)
+        if drink not in rec.tried:
+            self.log_taste("new", p, drink=drink)
+        v = taste.verdict(rec, p.persona, drink, self.rng)
+        taste.after_drink(rec, drink, v)
+        if p.drinks == 1 and taste.first_of_visit(rec, drink, day, self.rng):
+            self.log_taste("tired", p, drink=drink)
+        if bartender_id and buyer is None and t.suggest and drink == t.suggest:
+            b = self.people[bartender_id]
+            text = {"loved": f"{b.short} suggested the {drink} and it was exactly right.",
+                    "fine": f"{b.short} suggested the {drink}; it was fine.",
+                    "meh": f"{b.short} suggested the {drink}; it wasn't for you."}[v]
+            await self.social.add_memory(p.id, now, text, [b.id], 4)
+            if v == "loved":
+                await self.social.apply_delta(p.id, b.id, 1, 2, "")
+                self.log_taste("rec_loved", p, drink=drink)
 
     async def close_tab(self, p: PersonState) -> None:
         if p.tab_id is None:
@@ -1006,7 +1124,7 @@ class Director:
             return
         guest = p if not p.is_bartender else next(
             (self.people[m] for m in t.members if not self.people[m].is_bartender), None)
-        if guest is None or (p.is_bartender and (t.ordered or t.again)):
+        if guest is None or (p.is_bartender and (t.ordered or (t.again and not t.suggest))):
             return
         guest.drink, t.ordered, t.order_drink = name, t.ordered or not p.is_bartender, name
         self.publish_presence()
@@ -1113,6 +1231,7 @@ class Director:
         p.mood = max(-1.0, min(1.0, human.opening_mood(p.persona, self.rng) + life.mood_shift(mine, now)))
         p.buzz, p.battery = 0.0, self.rng.uniform(0.8, 1.0)
         p.peak_buzz, p.cut_off, p.on_water_until, p.slops, p.overshare_pending, p.overshared_with = 0.0, False, None, [], False, set()
+        p.spent, p.cap = 0, taste.visit_cap(p.persona, mine, now, life.freshness)
         h = self.hangovers.get(p.id)
         if h and h["written"]:  # the morning after: a rough start, and a lighter plan for tonight
             del self.hangovers[p.id]
@@ -1610,9 +1729,9 @@ class Director:
         await self.post("door", f"{host.short} brought {guest.short} along.", kind="system")
         self.publish_relationships([host.id, guest.id])
 
-    async def request_order(self, p: PersonState, party: list[str] | None = None) -> None:
+    async def request_order(self, p: PersonState, party: list[str] | None = None, treat: bool = False) -> None:
         """Ask for a drink: a free bartender takes the order now, otherwise the guest waits in line at the bar."""
-        w = Waiting(p.id, self.clock.now(), p.drinks > 0, list(party or []))
+        w = Waiting(p.id, self.clock.now(), p.drinks > 0, list(party or []), treat)
         if not p.seated and p.location != "ordering":
             if p.location in LOCATIONS:
                 await self.post(p.location, f"{p.short} heads up to the bar{' for another' if w.again else ''}.", kind="system")
@@ -1629,7 +1748,33 @@ class Director:
         # A repeat round is offered to a guest on a stool ("another?"); a first drink is asked for.
         t = await self.open_thread("bar" if p.seated else "ordering", "order", [p.id, b.id], max_turns=2 if w.again else 3,
                                    seated=p.seated, again=w.again, ask=w.again and p.seated)
-        t.party = w.party
+        t.party, t.treat = w.party, w.treat
+        self.plan_order(t, p, b)
+
+    def plan_order(self, t: ThreadState, p: PersonState, b: PersonState) -> None:
+        """Decide, in code, what this guest means to order and whether the bartender gets to suggest it."""
+        now = self.clock.now()
+        day = now.strftime("%Y-%m-%d")
+        rec = self.taste_of(p)
+        specials = sales.specials(now) if sales.happy_hour(now) else []
+        tight = taste.budget(p.persona) == "tight" or (p.cap > 0 and p.spent >= 0.6 * p.cap)
+        i = taste.intend(rec, p.persona, self.usual_for(p), self.rng, day, specials=specials, tight=tight)
+        if p.first_visit and not t.again and i.kind != "rec" and self.rng.random() < 0.5:
+            i = taste.Intent("rec", "", "you're new here and the bartender offered a taster")
+        t.intent = i
+        if i.kind == "rec":
+            t.suggest = taste.recommend(b.persona, rec, self.rng, day, specials)
+            t.take_rec = taste.takes_rec(p.persona, self.social.rel(p.id, b.id).familiarity, self.rng)
+            t.fallback = (taste.top(rec, 1) or [taste.usual(p.persona) or t.suggest])[0]
+
+    def settle_suggestion(self, t: ThreadState, guest: PersonState) -> None:
+        """A guest who asked for a suggestion ends up with it or, if they turned it down, with their fallback."""
+        i = t.intent
+        if i is None or i.kind != "rec" or not t.suggest or t.ordered:
+            return
+        t.order_drink = t.suggest if t.take_rec else t.fallback
+        t.ordered = True
+        guest.drink = t.order_drink
 
     async def serve_queue(self, now: datetime) -> None:
         """First in line gets the next free bartender. After two minutes the order beats a chat: the bartender excuses themselves."""
@@ -1727,7 +1872,8 @@ class Director:
                     continue
                 if self.wants_round(p, now) and self.bartenders_on():
                     taken.add(p.id)
-                    await self.request_order(p)
+                    friends = self.treat_friends(p, now)
+                    await self.request_order(p, [q.id for q in friends], treat=bool(friends))
                     continue
                 if p.need == "smoke" and p.need_at and now >= p.need_at:
                     taken.add(p.id)
@@ -1852,6 +1998,8 @@ class Director:
             await set_state(s, "life_day", {"day": self.life_day})
             await set_state(s, "hangovers", self.hangovers)
             await set_state(s, "drunk_log", self.drunk_log)
+            await set_state(s, "taste", {pid: rec.dump() for pid, rec in self.tastes.items()})
+            await set_state(s, "taste_log", self.taste_log)
             await set_state(s, "gossip_cred", self.gossip_cred)
             await set_state(s, "gossip_log", self.gossip_log)
             await set_state(s, "clock", {

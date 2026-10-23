@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from app.agents.prompts import persona_prompt
 from app.config import settings
 from app.llm.types import TurnRequest, Utterance
-from app.sim import beats, bonds, drunk, environment, gossip, human, life
+from app.sim import beats, bonds, drunk, environment, gossip, human, life, taste
 from app.sim import god as godmode
 from app.sim import sales
 from app.sim.social import RECALL_MAX, RECALL_QUICK, rel_time, relation_label
@@ -144,6 +144,7 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
     hints: list[str] = []
     mode = "normal"
     serve, water = "", False  # how the bartender is treating the guest in an order, and whether the guest is switching to water
+    want, ask_rec, suggest = "", False, ""  # for the mock: the drink this guest means to order, whether they ask for a suggestion, what the bartender suggests
     last_speaker = next((s for k, s, _ in reversed(t.lines) if k == "speech"), None)
     if t.kind == "order":
         guest = p if not p.is_bartender else next((o for o in others if not o.is_bartender), None)
@@ -157,14 +158,24 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
                 hints.append(_register_note(now, guest, d.visits.get(guest.id)))
                 serve = drunk.service(guest)
                 hints.append(drunk.bartender_note(guest, serve))
-        elif t.again and t.ask:
-            hints.append(f"The bartender is offering another. {_pick_line(p)} If you want one, say so and put its exact board name in drink (even for 'same again'); if you have had enough, politely pass and leave drink empty. {_pay_note(p)}")
-        elif not t.lines and t.again:
-            hints.append(f"You're ready for another round. {_pick_line(p)} {_pay_note(p)} Keep it brief.")
-        elif not t.lines:
-            hints.append(f"You just {'pulled up a stool at' if t.seated else 'walked up to'} the bar. Order a drink from the board by its exact name ({_pick_line(p)}) and say a word to the bartender. {_pay_note(p)}")
+                recent = d.taste_of(guest).history[-1:] if (d.visits.get(guest.id) or {}).get("n", 0) >= 3 else []
+                hints.append(taste.bartender_note(guest.short, t.suggest, recent[0] if recent else ""))
         else:
-            hints.append("Respond to the bartender and settle up the order. Keep it brief.")
+            bt_spoke = any(k == "speech" and sid in d.people and d.people[sid].is_bartender for k, sid, _ in t.lines)
+            pick = _order_pick(t, p, bt_spoke) or _pick_line(p)
+            want, ask_rec = _order_want(t, bt_spoke)
+            if t.treat:
+                pick += " " + taste.treat_note([d.people[m].short for m in t.party if m in d.people])
+            if t.again and t.ask:
+                hints.append(f"The bartender is offering another. {pick} If you want one, say so and put its exact board name in drink (even for 'same again'); if you have had enough, politely pass and leave drink empty. {_pay_note(p)}")
+            elif not t.lines and t.again:
+                hints.append(f"You're ready for another round. {pick} {_pay_note(p)} Keep it brief.")
+            elif not t.lines:
+                ordering = "" if ask_rec else "Order a drink from the board by its exact name. "
+                hints.append(f"You just {'pulled up a stool at' if t.seated else 'walked up to'} the bar. {ordering}{pick[:1].upper() + pick[1:]} Say a word to the bartender. {_pay_note(p)}")
+            else:
+                hints.append(f"Respond to the bartender and settle up the order. {pick if t.intent is not None and t.intent.kind == 'rec' else ''} Keep it brief.")
+        suggest = t.suggest
         if not p.is_bartender:
             serve = drunk.service(p)
             water = serve != "cut" and drunk.wants_water(p, rng)
@@ -261,6 +272,7 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
         mode=mode if (t.kind == "chat" and not p.is_bartender and t.lines) else "normal",
         mood=p.mood, buzz=p.buzz, battery=p.battery,
         drunk=drunk.tier(p.buzz), serve=serve, water=water,
+        want=want, ask_rec=ask_rec, suggest=suggest, treat=", ".join(d.people[m].short for m in t.party if m in d.people) if t.treat and not p.is_bartender else "",
         excuse=t.excuse.get(p.id, ""),
         avoid=avoid, lull=lull, cut=cut,
         life=(life.freshest(mine, now, 1)[0].text if life.freshest(mine, now, 1) else ""),
@@ -313,6 +325,28 @@ def _register_note(now: datetime, guest: PersonState, visits: dict | None = None
     else:
         parts.append(f"{guest.short} pays by card per drink.")
     return " ".join(parts)
+
+
+def _order_pick(t: ThreadState, p: PersonState, bt_spoke: bool) -> str:
+    """The guest's drink decision, made in code (taste.intend) and handed to the model as a plain instruction."""
+    i = t.intent
+    if i is None:
+        return ""
+    if i.kind != "rec":
+        return taste.guest_note(i)
+    if not bt_spoke:
+        return taste.guest_note(i)
+    return taste.rec_reply(t.suggest, t.take_rec, t.fallback)
+
+
+def _order_want(t: ThreadState, bt_spoke: bool) -> tuple[str, bool]:
+    """(the drink this guest means to order, whether they ask for a suggestion first), for the mock."""
+    i = t.intent
+    if i is None:
+        return "", False
+    if i.kind != "rec":
+        return i.drink, False
+    return ((t.suggest if t.take_rec else t.fallback), False) if bt_spoke else ("", True)
 
 
 def _pick_line(p: PersonState) -> str:

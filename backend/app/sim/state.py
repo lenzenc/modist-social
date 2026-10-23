@@ -90,6 +90,8 @@ class PersonState:
     slops: list[str] = field(default_factory=list)  # embarrassing things that happened this visit
     overshare_pending: bool = False  # will blurt something out on their next line
     overshared_with: set[str] = field(default_factory=set)  # who heard it
+    spent: int = 0  # cents they have paid for tonight, rounds for others included
+    cap: int = 0  # cents they are willing to spend tonight: see taste.visit_cap
 
     @property
     def seated(self) -> bool:
@@ -137,6 +139,11 @@ class ThreadState:
     lull: bool = False  # the talk just stalled; the next speaker is told
     lulls: int = 0  # stalls in a row
     cut: set[str] = field(default_factory=set)  # who breaks off mid-sentence this turn (a phone call)
+    intent: object | None = None  # what the guest means to order: see taste.Intent
+    suggest: str = ""  # the drink the bartender is to recommend, when the guest asks
+    take_rec: bool = False  # the guest goes along with the suggestion
+    fallback: str = ""  # what they order instead if they turn it down
+    treat: bool = False  # the guest is buying this order for their friends in `party`
 
 
 @dataclass
@@ -146,6 +153,7 @@ class Waiting:
     since: datetime
     again: bool  # a repeat round rather than a first drink
     party: list[str] = field(default_factory=list)  # a party leader's order pays for these first rounds
+    treat: bool = False  # `party` are friends being bought a round, not a party's first drinks
 
 
 @dataclass

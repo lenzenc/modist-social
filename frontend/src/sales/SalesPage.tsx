@@ -38,7 +38,7 @@ function TxRow({ t }: { t: Tx }) {
       <td className="py-2 pr-3">
         {t.items.map((i, n) => (
           <div key={n}>
-            {i.drink} <span className="text-[var(--muted)]">{usd(i.price)}{i.happy_hour && " · HH"}</span>
+            {i.drink} <span className="text-[var(--muted)]">{usd(i.price)}{i.happy_hour && " · HH"}{i.for && ` · for ${i.for}`}</span>
           </div>
         ))}
       </td>
@@ -183,7 +183,7 @@ export default function SalesPage() {
             {s.tab === "guest" && (
               <table className="w-full text-sm">
                 <thead className="text-left text-xs uppercase text-[var(--muted)]">
-                  <tr><th className="pb-2">Guest</th><th className="pb-2 text-right">Drinks</th><th className="pb-2 text-right">Sales</th><th className="pb-2 text-right">Tips</th><th className="pb-2 text-right">Paid</th></tr>
+                  <tr><th className="pb-2">Guest</th><th className="pb-2 text-right">Drinks</th><th className="pb-2 text-right">Sales</th><th className="pb-2 text-right">Tips</th><th className="pb-2 text-right">Rounds bought</th><th className="pb-2 text-right">Paid</th></tr>
                 </thead>
                 <tbody>
                   {summary?.by_person.map((p) => (
@@ -192,12 +192,13 @@ export default function SalesPage() {
                       <td className="py-1.5 text-right tabular-nums">{p.drinks}</td>
                       <td className="py-1.5 text-right tabular-nums">{usd(p.sales)}</td>
                       <td className="py-1.5 text-right tabular-nums">{usd(p.tips)}</td>
+                      <td className="py-1.5 text-right tabular-nums">{p.bought_for_others || "–"}</td>
                       <td className="py-1.5 text-right text-xs text-[var(--muted)]">
                         {[p.tabs && `${p.tabs} tab${p.tabs > 1 ? "s" : ""}`, p.per_drink && `${p.per_drink} per drink`].filter(Boolean).join(", ")}
                       </td>
                     </tr>
                   ))}
-                  {summary && !summary.by_person.length && <tr><td colSpan={5} className="py-6 text-center text-[var(--muted)]">Nobody has bought a drink in this period yet.</td></tr>}
+                  {summary && !summary.by_person.length && <tr><td colSpan={6} className="py-6 text-center text-[var(--muted)]">Nobody has bought a drink in this period yet.</td></tr>}
                 </tbody>
               </table>
             )}

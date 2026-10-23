@@ -30,6 +30,10 @@ class TurnRequest:
     drunk: str = ""  # sober | tipsy | drunk | wasted
     serve: str = ""  # in an order: how the bartender treats the guest (pour | slow | cut)
     water: bool = False  # the guest means to ask for water
+    want: str = ""  # in an order: the drink the guest has decided on (empty while they ask for a suggestion)
+    ask_rec: bool = False  # the guest asks the bartender what they would pour
+    suggest: str = ""  # the drink the bartender is to recommend
+    treat: str = ""  # the guest is buying a round for these people (comma-separated names)
     excuse: str = ""  # why this person should bow out of the chat this turn
     avoid: list[str] = field(default_factory=list)  # worn-out phrases and openers; the mock steers around them
     life: str = ""  # the freshest thing on this person's mind from off-screen, for the mock to bring up

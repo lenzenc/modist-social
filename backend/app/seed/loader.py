@@ -34,7 +34,7 @@ def read_world(city: str) -> str:
 
 def _persona(row: dict) -> dict:
     keep = ("age", "job", "traits", "politics", "drink", "interests", "quirk", "voice", "talk", "freq", "days", "window", "stay",
-            "bar_seat", "pay", "tipper", "big5", "life", "beer", "style", "takes", "avoid", "tics", "reasons")
+            "bar_seat", "pay", "tipper", "big5", "life", "beer", "style", "takes", "avoid", "tics", "reasons", "budget")
     return {k: row[k] for k in keep if k in row}
 
 

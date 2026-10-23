@@ -112,6 +112,7 @@ function ProfilePane() {
               <Row k="Mood" v={moodWord(p.state.mood)} />
               <Row k="Buzz" v={p.state.drinks ? `${p.state.drinks} drink${p.state.drinks > 1 ? "s" : ""}, ${p.state.tier}${p.state.cut_off ? ", cut off" : p.state.on_water ? ", on water" : ""}` : "sober"} />
               {p.state.slops.length > 0 && <Row k="Tonight" v={p.state.slops.join(", ")} />}
+              {p.state.cap > 0 && <Row k="Wallet" v={`$${(p.state.spent / 100).toFixed(0)} of about $${(p.state.cap / 100).toFixed(0)} tonight`} />}
               <Row k="Social energy" v={bar(p.state.battery)} />
               {p.state.need && <Row k="Needs to" v={p.state.need} />}
             </dl>
@@ -124,6 +125,12 @@ function ProfilePane() {
             <Row k="Personality" v={d.traits.join(", ")} />
             <Row k="Politics" v={d.politics} />
             <Row k="Usually" v={d.drink} />
+            {p.taste && p.taste.favorites.length > 0 && <Row k="Favorites" v={p.taste.favorites.join(", ")} />}
+            {p.taste && p.taste.tired_of.length > 0 && <Row k="Tired of" v={p.taste.tired_of.join(", ")} />}
+            {p.taste && <Row k="Spends" v={{ tight: "carefully", ok: "evenly", flush: "freely" }[p.taste.budget]} />}
+            {p.taste && Object.keys(p.taste.owes).length > 0 && (
+              <Row k="Rounds" v={Object.entries(p.taste.owes).map(([who, n]) => (n > 0 ? `owes ${who}` : `${who} owes`)).join(", ")} />
+            )}
             {p.present && p.drink && <Row k="Drinking now" v={p.drink} />}
             <Row k="Into" v={d.interests.join(", ")} />
             <Row k="Quirk" v={d.quirk} />

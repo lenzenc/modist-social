@@ -36,6 +36,7 @@ export interface Summary {
   people: PersonRow[];
   quiet: { share: number | null; band: Band; actions: number; speech: number; lulls: number };
   drunk: { rate: number | null; band: Band; visits: number; cut_offs: number; messes: number; rides: number };
+  taste: { variety: number | null; repeat: number | null; band: Band; guests: number; recs: number; taken: number; loved: number; tried_new: number; tired: number; skips: number; rounds: number };
   gossip: {
     rate: number | null;
     band: Band;

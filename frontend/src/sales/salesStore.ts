@@ -35,6 +35,7 @@ export interface PersonRow {
   tips: number;
   tabs: number;
   per_drink: number;
+  bought_for_others: number;
 }
 export interface Summary {
   range: { start: string; end: string; period: Period };
@@ -58,7 +59,7 @@ export interface Tx {
   tip: number;
   total: number;
   card: string;
-  items: { drink: string; price: number; list_price: number; happy_hour: boolean; at: string }[];
+  items: { drink: string; price: number; list_price: number; happy_hour: boolean; at: string; for: string | null }[];
 }
 
 interface State {

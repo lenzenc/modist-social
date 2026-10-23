@@ -181,6 +181,21 @@ export default function RealismPage() {
 
           <div className="rounded-lg border border-[var(--border)] p-4">
             <div className="mb-2 flex items-baseline justify-between text-sm">
+              <span className="font-semibold">Habits</span>
+              <span style={{ color: BAND_COLOR[summary.taste.band] }} className="font-bold">
+                {summary.taste.repeat === null ? "not enough orders yet" : `${Math.round(summary.taste.repeat * 100)}% same as last time`}
+              </span>
+            </div>
+            <div className="text-xs text-[var(--muted)]">
+              How often a guest's next drink is the one before it, among {summary.taste.guests} regulars with four or more drinks. People
+              repeat and people switch; always one or the other is a flag. {summary.taste.tried_new} new drinks tried, {summary.taste.tired}{" "}
+              worn-out favorites, {summary.taste.recs} suggestions ({summary.taste.taken} taken, {summary.taste.loved} loved),{" "}
+              {summary.taste.skips} rounds skipped for money, {summary.taste.rounds} rounds bought. Not part of the overall score.
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[var(--border)] p-4">
+            <div className="mb-2 flex items-baseline justify-between text-sm">
               <span className="font-semibold">Quiet moments</span>
               <span style={{ color: BAND_COLOR[summary.quiet.band] }} className="font-bold">
                 {summary.quiet.share === null ? "not enough activity yet" : `${summary.quiet.share}% of the room is not talk`}
