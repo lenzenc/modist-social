@@ -1,7 +1,7 @@
 import logging
 
 from app.agents.prompts import persona_prompt
-from app.sim import bonds, human
+from app.sim import bonds, gossip, human
 from app.sim.social import relation_label
 from app.sim.state import LOC_DESC, ThreadState
 
@@ -87,10 +87,15 @@ async def summarize_thread(d, t: ThreadState, firsts: set | None = None) -> tupl
         )
         for a in speakers
     )
+    for q in speakers:
+        heard = [d.people[o].short for o in sorted(d.people[q].overshared_with) if o in speakers]
+        if heard:
+            roster += f"\n({d.people[q].short} drank too much and told {' and '.join(heard)} something private.)"
     result = await d.llm.summarize(transcript, roster)
     if not result:
         return mem_done, rel_done
     now = d.clock.now()
+    confronted: set[tuple[str, str]] = set()  # one reckoning per teller and subject, however many heard it
     for m in result.get("memories", []):
         pid = d.resolve(m.get("person", ""))
         if pid not in speakers:
@@ -99,8 +104,13 @@ async def summarize_thread(d, t: ThreadState, firsts: set | None = None) -> tupl
         importance = int(m.get("importance") or 5)
         if any(_key(pid, o) in firsts for o in about):
             importance = max(importance, 6)
-        if await d.social.add_memory(pid, now, m.get("text", ""), about, importance):
+        text = m.get("text", "")
+        prov = await trace_rumor(d, t, pid, speakers, about, text, m)
+        rec = await d.social.add_memory(pid, now, text, about, importance, **prov)
+        if rec:
             mem_done |= {(pid, o) for o in about}
+            if prov:
+                await settle_rumor(d, rec, speakers, confronted)
         if followup := str(m.get("followup", "")).strip():
             await d.social.add_memory(pid, now, followup, about, 6, "followup")
     for r in result.get("relationships", []):
@@ -118,6 +128,85 @@ async def summarize_thread(d, t: ThreadState, firsts: set | None = None) -> tupl
         await bond_step(d, a, b, str(r.get("moment", "none")), d.resolve(r.get("by", "")) or "", aff, str(r.get("note", "")))
     d.publish_relationships(speakers)
     return mem_done, rel_done
+
+
+async def trace_rumor(d, t: ThreadState, pid: str, speakers: list[str], about: list[str], text: str, m: dict) -> dict:
+    """Provenance for a memory the summary says was heard from someone: where it came from and how much it has changed.
+
+    Empty for anything first-hand. A retelling is linked to the memory the teller actually had in mind, and loses accuracy;
+    a claim the teller made up (or blurted when drunk) starts its own chain.
+    """
+    src = d.resolve(m.get("heard_from", "")) or ""
+    if not src or src == pid or src not in speakers or not about:
+        return {}
+    sure = str(m.get("sure") or "fairly")
+    teller = d.people[src]
+    cred = gossip.get_cred(d.gossip_cred, src)
+    parent = gossip.find_parent(d.social.memories.get(src, []), t.told.get(src, []), set(about), text)
+    if parent is not None:
+        if parent.origin_id is None:
+            await d.social.set_provenance(parent, origin_id=parent.id)
+        prov = gossip.retell(parent, text, sure, teller.buzz, cred, d.rng)
+        prov["parent_id"] = parent.id
+        better = gossip.correction(d.social.memories.get(pid, []), prov["origin_id"], prov["accuracy"])
+        if better:
+            # The listener knows better and says so; the version they hear is stored as doubtful.
+            gossip.bump_cred(d.gossip_cred, src, -3)
+            prov["confidence"] = min(prov["confidence"], 25)
+            d.gossip_log.append({"day": d.clock.now().date().isoformat(), "origin": prov["origin_id"], "teller": src,
+                                 "subject": about[0], "verdict": gossip.verdict(prov["accuracy"]), "kind": "correct"})
+    elif pid in teller.overshared_with:
+        prov = {"hops": 0, "confidence": 90, "accuracy": 100}  # a drunken confession is true, and now it is out
+    else:
+        conf = gossip.SURE.get(sure, gossip.SURE["fairly"]) * (0.5 + cred / 200)
+        prov = {"hops": 0, "confidence": gossip.clamp(conf, 5), "accuracy": gossip.fresh_claim(teller.buzz, cred, d.rng)}
+    prov["source_id"] = src
+    return prov
+
+
+async def settle_rumor(d, rec, speakers: list[str], confronted: set) -> None:
+    """A new rumor copy: it roots its own chain if it has none, and if the person it is about is in the room, they hear it."""
+    if rec.origin_id is None:
+        await d.social.set_provenance(rec, origin_id=rec.id)
+    now = d.clock.now()
+    for subject in rec.about:
+        key = (rec.source_id, subject)
+        if subject not in speakers or subject == rec.source_id or key in confronted:
+            continue
+        confronted.add(key)
+        kind = gossip.verdict(rec.accuracy)
+        plan = gossip.confrontation(kind, d.rng)
+        teller, who = d.people[rec.source_id], d.people[subject]
+        await d.social.apply_delta(subject, rec.source_id, 0, plan.aff, f"{teller.short} spread a rumor about {who.short}")
+        if plan.origin_aff and (first := _origin_teller(d, rec.origin_id)) not in ("", rec.source_id, subject):
+            await d.social.apply_delta(subject, first, 0, plan.origin_aff, "")
+        gossip.bump_cred(d.gossip_cred, rec.source_id, plan.cred)
+        human.nudge_mood(teller, plan.teller_mood)
+        human.nudge_mood(who, plan.subject_mood)
+        said = gossip.texts(kind, teller.short, who.short, rec.text)
+        await d.social.add_memory(subject, now, said["subject"], [rec.source_id], 8 if kind == "false" else 6)
+        await d.social.add_memory(rec.source_id, now, said["teller"], [subject], 7)
+        for other in speakers:
+            if other in (subject, rec.source_id):
+                continue
+            await d.social.add_memory(other, now, said["listener"], [subject, rec.source_id], 5)
+            if kind == "false":
+                for copy in d.social.memories.get(other, []):
+                    if copy.origin_id == rec.origin_id and copy.confidence > 20:
+                        await d.social.set_provenance(copy, confidence=20)
+        if plan.fight:
+            await bond_step(d, subject, rec.source_id, "fight", subject, plan.aff, f"{teller.short} spread a lie about {who.short}")
+        d.gossip_log = (d.gossip_log + [{"day": now.date().isoformat(), "origin": rec.origin_id, "teller": rec.source_id,
+                                         "subject": subject, "verdict": kind, "kind": "confront"}])[-gossip.LOG_KEEP:]
+
+
+def _origin_teller(d, origin_id: int | None) -> str:
+    """Who first told the person who started this chain, if anyone did."""
+    for lst in d.social.memories.values():
+        for m in lst:
+            if m.id == origin_id:
+                return m.source_id
+    return ""
 
 
 async def bond_step(d, a: str, b: str, moment: str, by: str, aff_delta: int, note: str = "") -> None:

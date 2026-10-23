@@ -79,6 +79,8 @@ class Director:
         self.romance: dict[str, int] = {}  # sim day -> crushes and couples formed that day
         self.hangovers: dict[str, dict] = {}  # pid -> how their last drunk night went: see drunk.record
         self.drunk_log: list[dict] = []  # every drunk visit lately, for the scorecard
+        self.gossip_cred: dict[str, int] = {}  # pid -> how far others can trust what they pass on: see sim.gossip
+        self.gossip_log: list[dict] = []  # rumors that reached their subject or got corrected, for the scorecard
         self.generating = False  # a newcomer is being made right now
         self.parties: dict[int, PartyState] = {}  # parties holding tables right now
         self._party_seq = 0
@@ -117,6 +119,8 @@ class Director:
             self.life_day = (await get_state(s, "life_day", {}) or {}).get("day", "")
             self.hangovers = await get_state(s, "hangovers", {}) or {}
             self.drunk_log = await get_state(s, "drunk_log", []) or []
+            self.gossip_cred = await get_state(s, "gossip_cred", {}) or {}
+            self.gossip_log = await get_state(s, "gossip_log", []) or []
         for p in self.people.values():
             self.persona_text[p.id] = persona_prompt(p, self.lives.get(p.id, ""))
         await self.social.load()
@@ -1717,6 +1721,8 @@ class Director:
             await set_state(s, "life_day", {"day": self.life_day})
             await set_state(s, "hangovers", self.hangovers)
             await set_state(s, "drunk_log", self.drunk_log)
+            await set_state(s, "gossip_cred", self.gossip_cred)
+            await set_state(s, "gossip_log", self.gossip_log)
             await set_state(s, "clock", {
                 "sim_now": self.clock.now().isoformat(), "speed": self.clock.speed,
                 "crowd": self.crowd, "crowd_days": self.crowd_days,

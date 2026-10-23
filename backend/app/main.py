@@ -162,6 +162,9 @@ async def person(pid: str):
     mems = [{
         "sim_ts": m.sim_ts.isoformat(), "text": m.text, "importance": m.importance, "kind": m.kind,
         "about": [director.people[i].short for i in m.about if i in director.people],
+        "source": director.people[m.source_id].short if m.source_id in director.people else None,
+        "confidence": m.confidence if m.source_id else None, "accuracy": m.accuracy if m.source_id else None,
+        "hops": m.hops if m.source_id else None,
     } for m in reversed(social.memories.get(pid, [])[-40:])]
     state = {
         "reason": p.reason, "mood": round(p.mood, 2), "buzz": round(p.buzz, 2), "battery": round(p.battery, 2),

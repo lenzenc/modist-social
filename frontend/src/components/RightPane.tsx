@@ -192,6 +192,11 @@ function ProfilePane() {
               <div className="text-xs text-[var(--muted)]">
                 {m.kind === "reflection" && "💭 reflection · "}
                 {m.kind === "followup" && "↪ to ask next time · "}
+                {m.source && (
+                  <span title={`${m.accuracy}% accurate after ${m.hops} retelling${m.hops === 1 ? "" : "s"}`}>
+                    🗣 from {m.source}, {m.confidence! >= 80 ? "pretty sure" : m.confidence! >= 50 ? "fairly sure" : "not sure"} ·{" "}
+                  </span>
+                )}
                 {fmtDayTime(m.sim_ts)}
                 {m.about.length > 0 && ` · about ${m.about.join(", ")}`}
               </div>

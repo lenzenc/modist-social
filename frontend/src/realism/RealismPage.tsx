@@ -181,6 +181,33 @@ export default function RealismPage() {
 
           <div className="rounded-lg border border-[var(--border)] p-4">
             <div className="mb-2 flex items-baseline justify-between text-sm">
+              <span className="font-semibold">Grapevine</span>
+              <span style={{ color: BAND_COLOR[summary.gossip.band] }} className="font-bold">
+                {summary.gossip.rate === null ? "not enough rumors yet" : `${summary.gossip.rate}% of rumors had consequences`}
+              </span>
+            </div>
+            <div className="mb-2 text-xs text-[var(--muted)]">
+              Rumors passed on ({summary.gossip.rumors} told, {summary.gossip.chains} chains, up to {summary.gossip.max_hops} retellings,
+              {" "}{summary.gossip.distortion}% average drift). The share of chains where the subject heard, or someone was corrected; {summary.gossip.caught_out}{" "}
+              caught out. If nothing ever reaches the person it's about, talk costs nothing. Not part of the overall score.
+            </div>
+            {summary.gossip.trails.map((tr) => (
+              <div key={tr.origin} className="mb-2 border-t border-[var(--border)] pt-2 text-xs">
+                <div className="mb-1 text-[var(--muted)]">About {tr.versions[0]?.about.join(", ")}</div>
+                {tr.versions.map((v, i) => (
+                  <div key={i} className="mb-1">
+                    <span className="font-semibold">{v.from ? `${v.from} → ${v.who}` : v.who}</span>: {v.text}{" "}
+                    <span className="text-[var(--muted)]">
+                      (retold {v.hops}×, {v.confidence}% sure, {v.accuracy}% accurate)
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-lg border border-[var(--border)] p-4">
+            <div className="mb-2 flex items-baseline justify-between text-sm">
               <span className="font-semibold">Relationships</span>
               <span style={{ color: BAND_COLOR[summary.bonds.band] }} className="font-bold">
                 {summary.bonds.rate === null ? "not enough visits yet" : `${summary.bonds.changes} changes`}

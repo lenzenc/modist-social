@@ -67,7 +67,11 @@ class Social:
                 )
             rows = (await s.scalars(select(Memory).order_by(Memory.id))).all()
         for m in rows:
-            self.memories.setdefault(m.person_id, []).append(MemoryRec(m.sim_ts, m.text, m.about or [], m.importance or 5, m.kind or "event", m.id))
+            self.memories.setdefault(m.person_id, []).append(MemoryRec(
+                m.sim_ts, m.text, m.about or [], m.importance or 5, m.kind or "event", m.id,
+                m.source_id or "", m.parent_id, m.origin_id, m.hops or 0,
+                100 if m.confidence is None else m.confidence, 100 if m.accuracy is None else m.accuracy,
+            ))
         for pid, lst in self.memories.items():
             del lst[:-MAX_MEMORIES]
 
@@ -139,20 +143,35 @@ class Social:
             await s.commit()
 
     async def add_memory(self, pid: str, ts: datetime, text: str, about: list[str], importance: int = 5,
-                         kind: str = "event") -> MemoryRec | None:
+                         kind: str = "event", *, source_id: str = "", parent_id: int | None = None,
+                         origin_id: int | None = None, hops: int = 0, confidence: int = 100,
+                         accuracy: int = 100) -> MemoryRec | None:
         text = text.strip()
         if not text:
             return None
-        rec = MemoryRec(ts, text, about, max(1, min(10, int(importance))), kind)
+        rec = MemoryRec(ts, text, about, max(1, min(10, int(importance))), kind, None, source_id, parent_id,
+                        origin_id, hops, confidence, accuracy)
         lst = self.memories.setdefault(pid, [])
         lst.append(rec)
         del lst[:-MAX_MEMORIES]
         async with Session() as s:
-            row = Memory(person_id=pid, sim_ts=ts, text=text, about=about, importance=rec.importance, kind=kind)
+            row = Memory(person_id=pid, sim_ts=ts, text=text, about=about, importance=rec.importance, kind=kind,
+                         source_id=source_id or None, parent_id=parent_id, origin_id=origin_id, hops=hops,
+                         confidence=confidence, accuracy=accuracy)
             s.add(row)
             await s.commit()
             rec.id = row.id
         return rec
+
+    async def set_provenance(self, rec: MemoryRec, **fields) -> None:
+        """Change a memory's gossip fields (origin, confidence...) in RAM and in the database."""
+        for k, v in fields.items():
+            setattr(rec, k, v)
+        if rec.id is None:
+            return
+        async with Session() as s:
+            await s.execute(update(Memory).where(Memory.id == rec.id).values(**fields))
+            await s.commit()
 
     def bump(self, rec: MemoryRec, importance: int) -> None:
         rec.importance = max(rec.importance, importance)
@@ -190,7 +209,11 @@ class Social:
         picked = sorted(rest, key=score, reverse=True)[:room]
         rumor = [m for m in rest if m.about and not (present & set(m.about)) and m not in picked]
         if rumor and len(picked) + len(follow) < k:
-            picked.append(random.choice(rumor))
+            # Fresh, confident rumors travel further than stale or doubtful ones.
+            def juice(m: MemoryRec) -> float:
+                days = max(0.0, (now - m.sim_ts).total_seconds() / 86400) if now else 0.0
+                return (0.2 + m.confidence / 100) * 0.9 ** days
+            picked.append(random.choices(rumor, [juice(m) for m in rumor])[0])
         return sorted(picked + follow, key=lambda m: m.sim_ts)
 
     def recall(self, pid: str, present: set[str], k: int = RECALL_MAX, now: datetime | None = None, text: str = "") -> list[str]:

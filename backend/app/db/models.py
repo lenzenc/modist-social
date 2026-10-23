@@ -68,6 +68,13 @@ class Memory(Base):
     about: Mapped[list] = mapped_column(JSON, default=list)  # person ids
     importance: Mapped[int] = mapped_column(Integer, default=5)  # 1..10
     kind: Mapped[str] = mapped_column(String(16), default="event")  # event | reflection | followup | done
+    # Gossip provenance (see sim/gossip.py). Empty for first-hand memories.
+    source_id: Mapped[str | None] = mapped_column(String(16), nullable=True)  # who told them
+    parent_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # the teller's memory this was copied from
+    origin_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)  # root of the rumor chain
+    hops: Mapped[int] = mapped_column(Integer, default=0)
+    confidence: Mapped[int] = mapped_column(Integer, default=100)  # how sure this person is, 0..100
+    accuracy: Mapped[int] = mapped_column(Integer, default=100)  # how true it is, 0..100; never shown to the model
 
 
 class Thread(Base):
@@ -169,6 +176,13 @@ class SimState(Base):
 _COLUMNS = (
     "ALTER TABLE memory ADD COLUMN IF NOT EXISTS importance INTEGER NOT NULL DEFAULT 5",
     "ALTER TABLE memory ADD COLUMN IF NOT EXISTS kind VARCHAR(16) NOT NULL DEFAULT 'event'",
+    "ALTER TABLE memory ADD COLUMN IF NOT EXISTS source_id VARCHAR(16) NULL",
+    "ALTER TABLE memory ADD COLUMN IF NOT EXISTS parent_id INTEGER NULL",
+    "ALTER TABLE memory ADD COLUMN IF NOT EXISTS origin_id INTEGER NULL",
+    "ALTER TABLE memory ADD COLUMN IF NOT EXISTS hops INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE memory ADD COLUMN IF NOT EXISTS confidence INTEGER NOT NULL DEFAULT 100",
+    "ALTER TABLE memory ADD COLUMN IF NOT EXISTS accuracy INTEGER NOT NULL DEFAULT 100",
+    "CREATE INDEX IF NOT EXISTS ix_memory_origin_id ON memory (origin_id)",
     "ALTER TABLE relationship ADD COLUMN IF NOT EXISTS met_at TIMESTAMP NULL",
     "ALTER TABLE relationship ADD COLUMN IF NOT EXISTS bond VARCHAR(16) NOT NULL DEFAULT ''",
     "ALTER TABLE relationship ADD COLUMN IF NOT EXISTS bond_since TIMESTAMP NULL",

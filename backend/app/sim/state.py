@@ -133,6 +133,7 @@ class ThreadState:
     party: list[str] = field(default_factory=list)  # the leader's party: their first drinks ride on this order
     excuse: dict[str, str] = field(default_factory=dict)  # who should bow out this turn, and why
     span: dict[str, list] = field(default_factory=dict)  # pid -> [first line index, last line index or None]
+    told: dict[str, list[int]] = field(default_factory=dict)  # pid -> rumor memory ids they had in mind this thread
 
 
 @dataclass
@@ -177,3 +178,9 @@ class MemoryRec:
     importance: int = 5
     kind: str = "event"  # event | reflection | followup | done
     id: int | None = None
+    source_id: str = ""  # who told them; empty if first-hand
+    parent_id: int | None = None
+    origin_id: int | None = None
+    hops: int = 0
+    confidence: int = 100
+    accuracy: int = 100  # hidden truth, never shown to the model

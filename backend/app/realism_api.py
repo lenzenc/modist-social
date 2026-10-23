@@ -5,8 +5,8 @@ from datetime import date, datetime, time, timedelta
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
-from app.db.models import BondChange, LifeEvent, Message, Person, Session, Thread, get_state
-from app.sim import bonds, drunk, life, realism
+from app.db.models import BondChange, LifeEvent, Memory, Message, Person, Session, Thread, get_state
+from app.sim import bonds, drunk, gossip, life, realism
 from app.sim.state import display_name
 
 router = APIRouter(prefix="/api/realism")
@@ -54,6 +54,15 @@ async def summary(period: str = "day", date: str = ""):
         )).all()
         names = {pid: display_name(n) for pid, n in (await s.execute(select(Person.id, Person.name))).all()}
         drunk_log = [h for h in (await get_state(s, "drunk_log", []) or []) if start.isoformat() <= h["day"] < end.isoformat()]
+        gossip_log = [e for e in (await get_state(s, "gossip_log", []) or []) if start.isoformat() <= e["day"] < end.isoformat()]
+        heard = (await s.scalars(select(Memory).where(
+            Memory.source_id.is_not(None), Memory.sim_ts >= datetime.combine(start, time.min),
+            Memory.sim_ts < datetime.combine(end, time.min)))).all()
+        rumor_rows = [{"id": m.id, "source_id": m.source_id, "origin_id": m.origin_id, "hops": m.hops, "accuracy": m.accuracy}
+                      for m in heard]
+        top = sorted({r["origin_id"] for r in rumor_rows if r["origin_id"] is not None},
+                     key=lambda o: -max(r["hops"] for r in rumor_rows if r["origin_id"] == o))[:3]
+        trails = (await s.scalars(select(Memory).where(Memory.origin_id.in_(top)).order_by(Memory.id))).all() if top else []
         moves = (await s.scalars(select(BondChange).where(
             BondChange.sim_ts >= datetime.combine(start, time.min), BondChange.sim_ts < datetime.combine(end, time.min)
         ).order_by(BondChange.id.desc()))).all()
@@ -91,7 +100,21 @@ async def summary(period: str = "day", date: str = ""):
         "range": {"start": start.isoformat(), "end": (end - timedelta(days=1)).isoformat(), "period": period},
         **result, "series": series, "life": life.continuity(in_range, events, names),
         "drunk": drunk.consequences(drunk_log),
+        "gossip": {**gossip.spread(rumor_rows, gossip_log), "trails": _trails(top, trails, names)},
     }
+
+
+def _trails(top: list[int], rows: list[Memory], names: dict[str, str]) -> list[dict]:
+    """The longest rumor chains, each as the versions of it that were told in order."""
+    out = []
+    for origin in top:
+        versions = [{
+            "who": names.get(m.person_id, m.person_id), "from": names.get(m.source_id, "") if m.source_id else "",
+            "text": m.text, "hops": m.hops, "confidence": m.confidence, "accuracy": m.accuracy,
+            "about": [names.get(i, i) for i in (m.about or [])],
+        } for m in rows if m.origin_id == origin]
+        out.append({"origin": origin, "versions": sorted(versions, key=lambda v: v["hops"])})
+    return out
 
 
 @router.get("/days")

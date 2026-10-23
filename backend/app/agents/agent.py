@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from app.agents.prompts import persona_prompt
 from app.config import settings
 from app.llm.types import TurnRequest, Utterance
-from app.sim import bonds, drunk, environment, human, life
+from app.sim import bonds, drunk, environment, gossip, human, life
 from app.sim import god as godmode
 from app.sim import sales
 from app.sim.social import RECALL_MAX, RECALL_QUICK, rel_time, relation_label
@@ -107,6 +107,8 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
 
     talk = " ".join(x[2] for x in t.lines[-4:] if x[0] == "speech")
     recs = d.social.recall_recs(p.id, present_ids, now, talk, RECALL_QUICK if t.kind != "chat" else RECALL_MAX)
+    names = {pid: x.short for pid, x in d.people.items()}
+    rumors: list = []  # third-party memories about people who aren't here, which the mock may repeat
     if recs:
         out.append("\nThings you remember:")
         for m in recs:
@@ -116,7 +118,16 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
                 if m.id is not None:
                     d.social.done_ids.append(m.id)
             else:
-                out.append(f"- ({rel_time(m.sim_ts, now)}) {m.text}")
+                src = gossip.label(m, names, present_ids)
+                out.append(f"- ({rel_time(m.sim_ts, now)}{', ' + src if src else ''}) {m.text}")
+                if m.kind == "event" and m.about and m.id is not None:
+                    # Remember what each speaker had in mind, so a retelling can be traced to its source.
+                    t.told.setdefault(p.id, [])
+                    if m.id not in t.told[p.id]:
+                        t.told[p.id].append(m.id)
+                    if not (present_ids & set(m.about)):
+                        rumors.append(m)
+    hazy = any(gossip.hazy(m) for m in recs)
     if p.pending_fact:
         out.append(f"\nYou just looked this up on your phone: {p.pending_fact}")
         p.pending_fact = ""
@@ -210,6 +221,8 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
             hints.append("The conversation is running out of steam. It can just fizzle, or you get distracted; no goodbye needed.")
         else:
             hints.append("The conversation is winding down. Wrap up naturally, perhaps with a parting remark.")
+    if hazy and t.kind == "chat" and t.lines and not p.is_bartender:
+        hints.append(gossip.HAZY_HINT)
     avoid = d.realism.avoid_for(p.id, first_line=not t.lines) if settings.realism_feedback else []
     if avoid:
         hints.append("Don't reuse these worn-out phrases or openers: " + ", ".join(f'"{a}"' for a in avoid) + ".")
@@ -240,7 +253,26 @@ def build_turn(d, t: ThreadState, p: PersonState, wind_down: bool) -> TurnReques
         excuse=t.excuse.get(p.id, ""),
         avoid=avoid,
         life=(life.freshest(mine, now, 1)[0].text if life.freshest(mine, now, 1) else ""),
+        rumor=_rumor_for_mock(rumors, names, around, [o.short for o in others if not o.is_bartender], rng)
+        if t.kind == "chat" and not p.is_bartender else None,
     )
+
+
+def _rumor_for_mock(rumors: list, names: dict[str, str], absent: list[str], here: list[str],
+                    rng: random.Random) -> tuple[str, str] | None:
+    """(who it's about, what was said) for the mock to repeat.
+
+    Rumors it already holds come first; with none, it starts one about someone in the room (empty text: the mock
+    makes up the claim), and now and then about someone in the chat, so the subject can hear it.
+    """
+    if here and rng.random() < 0.12:
+        return rng.choice(here), ""
+    pool = [m for m in rumors if gossip.is_rumor(m)]
+    if pool:
+        m = rng.choice(pool)
+        about = next((names[i] for i in m.about if i in names), "")
+        return (about, m.text) if about else None
+    return (rng.choice(absent), "") if absent else None
 
 
 def _persona_text(d, p: PersonState) -> str:

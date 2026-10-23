@@ -35,6 +35,22 @@ export interface Summary {
   };
   people: PersonRow[];
   drunk: { rate: number | null; band: Band; visits: number; cut_offs: number; messes: number; rides: number };
+  gossip: {
+    rate: number | null;
+    band: Band;
+    rumors: number;
+    chains: number;
+    avg_hops: number;
+    max_hops: number;
+    distortion: number;
+    caught_out: number;
+    subject_heard: number;
+    corrected: number;
+    trails: {
+      origin: number;
+      versions: { who: string; from: string; text: string; hops: number; confidence: number; accuracy: number; about: string[] }[];
+    }[];
+  };
   life: {
     rate: number | null;
     band: Band;

@@ -78,8 +78,10 @@ SUMMARY_SCHEMA = {
                     "about": {"type": "array", "items": {"type": "string"}},
                     "importance": {"type": "integer"},
                     "followup": {"type": "string"},
+                    "heard_from": {"type": "string"},
+                    "sure": {"type": "string", "enum": ["certain", "fairly", "doubtful"]},
                 },
-                "required": ["person", "text", "about", "importance", "followup"],
+                "required": ["person", "text", "about", "importance", "followup", "heard_from", "sure"],
                 "additionalProperties": False,
             },
         },
@@ -224,6 +226,10 @@ class AnthropicLLM:
                 "list) should remember their first impression of each other. followup is one short first-person "
                 "thing to ask or follow up on next time they talk (for example 'Ask Dana how the interview went'), "
                 "or an empty string if there is nothing natural to follow up on. "
+                "heard_from is the name of the speaker who told this person a secondhand rumor about someone else "
+                "(an empty string for anything the person saw or did themselves), and sure is how sure the person "
+                "would be of it: certain, fairly or doubtful. Write a rumor the way the listener understood it, "
+                "even if they got it slightly wrong. "
                 "Relationship deltas: familiarity 0 to 8, affinity -8 to 8. Strangers who just met and chatted "
                 "pleasantly gain about +4 familiarity. Use a short note only when something worth remembering "
                 "about the pair happened, otherwise an empty string. moment is 'none' unless one clearly happened between the pair: "

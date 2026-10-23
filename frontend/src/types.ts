@@ -128,7 +128,18 @@ export interface Profile extends Person {
   }[];
   /** The last few times one of their relationships changed. */
   bond_changes: { with: string; from: string; to: string; why: string; sim_ts: string }[];
-  memories: { sim_ts: string; text: string; about: string[]; importance: number; kind: string }[];
+  memories: {
+    sim_ts: string;
+    text: string;
+    about: string[];
+    importance: number;
+    kind: string;
+    /** Who told them, for a rumor; null if they saw it themselves. */
+    source: string | null;
+    confidence: number | null;
+    accuracy: number | null;
+    hops: number | null;
+  }[];
   /** How they feel right now; null when they're not in the taproom. */
   state: { reason: string; mood: number; buzz: number; battery: number; need: string; thought: string; drinks: number; tier: string; cut_off: boolean; on_water: boolean; slops: string[] } | null;
   lately: string;

@@ -78,6 +78,7 @@ Each turn is rolled as a quick reaction, a normal line, or a short story, depend
 - When a conversation ends, one cheap call records what each person remembers, how much it mattered, and sometimes one thing to ask about next time. Follow-ups come up once, then are retired.
 - A first meeting between two strangers is always recorded, even when the chat was too short to summarize: a memory for each side and the day they met.
 - Each turn recalls up to 20 memories, scored by recency, importance and relevance (who is in the room, what is being said), and shown with when they happened ("last Thursday"). Memories about third parties resurface later, which is how gossip spreads.
+- Gossip has a paper trail. A rumor remembers who told it and how sure the listener was ("heard from Dana, not sure"), links back to the memory it was copied from, and loses accuracy with each retelling (more when the teller is drunk or unreliable). The truth of a rumor is hidden from the model. When the person a rumor is about is in the room, they hear it: a false one costs the teller affinity, credibility and possibly the friendship, a listener who knows better pushes back, and the subject remembers being talked about. The Realism page has a Grapevine card with the longest chains, version by version.
 - After closing, each person who visited reflects on the day, and their "life lately" moves on a little. That shows up in the profile and in later conversations.
 
 ### Life between visits

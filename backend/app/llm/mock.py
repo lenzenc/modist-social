@@ -1,4 +1,5 @@
 import random
+import re
 import zlib
 
 from app.llm.types import TurnRequest, Utterance
@@ -60,7 +61,28 @@ _CUT = ["I think you've had enough for tonight, friend. Let me get you a water."
 _SLOW = ["Sure thing. Maybe a water to go with it?", "Coming up. Want a glass of water alongside?"]
 _WATER_ASK = ["Actually, just a water for me, I think.", "Water, please. I should slow down."]
 _EXCUSE = ["Be right back, I'll be a few minutes.", "Sorry, I need a breather. Back in a bit.", "Excuse me a sec, nature calls."]
+_CLAIMS = [
+    "{name} is thinking about quitting their job.",
+    "{name} is seeing someone new.",
+    "{name} is behind on rent.",
+    "{name} got a speeding ticket last week.",
+    "{name} is moving across town.",
+    "{name} has been avoiding everyone lately.",
+    "{name} is entering a homebrew competition.",
+]
+_DISTORT = [("thinking about", "definitely"), ("last week", "the other day"), ("new", "secret"), ("behind", "way behind"),
+            ("is ", "might be "), ("seeing", "sneaking around with")]
+_HEARD = re.compile(r"^(?P<teller>[^:]+): .*?You know what I heard about (?P<about>[^?]+)\? (?P<claim>.+)$")
+_SURE = ["certain", "fairly", "fairly", "doubtful"]
 _BEERS = menu.names()
+
+
+def _distort(claim: str, r: random.Random) -> str:
+    """A rumor changes a little in the retelling."""
+    for old, new in r.sample(_DISTORT, len(_DISTORT)):
+        if old in claim:
+            return claim.replace(old, new, 1)
+    return claim.rstrip(".") + ", apparently."
 _NEWS = [
     "City council delays vote on the proposed bike-lane expansion",
     "Local brewery wins gold at a regional beer competition",
@@ -123,6 +145,10 @@ class MockLLM:
                 say = r.choice(_WASTED if req.drunk == "wasted" else _SLURRED)
             elif req.buzz > 0.4 and r.random() < 0.4:
                 say = r.choice(_LOOSE)
+        if req.rumor and req.kind == "chat" and req.last_line and not req.is_bartender and r.random() < 0.3:
+            about, text = req.rumor
+            claim = _distort(text, r) if text else r.choice(_CLAIMS).format(name=about)
+            say = f"You know what I heard about {about}? {claim}"
         if req.wants_leave:
             say = "Alright, I should get going. Good talking to you all."
             action = "leave"
@@ -137,9 +163,16 @@ class MockLLM:
     async def summarize(self, transcript: str, roster: str) -> dict | None:
         names = [line.split("|")[0].strip() for line in roster.splitlines() if "|" in line]
         mems = [{"person": n, "text": "Chatted at the taproom; learned a little about the others.", "about": [],
-                 "importance": 3, "followup": ""} for n in names]
+                 "importance": 3, "followup": "", "heard_from": "", "sure": "fairly"} for n in names]
         rels = []
         r = random.Random(zlib.crc32(transcript.encode()))
+        for line in transcript.splitlines():
+            if not (m := _HEARD.match(line)):
+                continue
+            for n in names:
+                if n not in (m["teller"], m["about"]):
+                    mems.append({"person": n, "text": m["claim"], "about": [m["about"]], "importance": 5, "followup": "",
+                                 "heard_from": m["teller"], "sure": r.choice(_SURE)})
         for i, a in enumerate(names):
             for b in names[i + 1 :]:
                 moment = r.choices(_MOMENTS, _MOMENT_WEIGHTS)[0]
