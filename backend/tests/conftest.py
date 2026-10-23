@@ -1,6 +1,9 @@
 import asyncio
+import os
 
 import pytest
+
+os.environ.setdefault("TAP_SYNC", "false")  # tests never touch the network
 
 from app.db.models import engine, init_db
 

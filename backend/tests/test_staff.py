@@ -164,22 +164,22 @@ def test_a_wrong_pour_is_caught_and_the_guest_still_gets_what_they_ordered(monke
         charged.append(drink)
 
     d.charge = charge
-    t = _order(order_drink="Skoloft", ordered=True)
+    t = _order(order_drink="Supra Deluxe", ordered=True)
     mood = d.people["b1"].mood
     _run(d.finish_order(t))
-    assert charged == ["Skoloft"]
+    assert charged == ["Supra Deluxe"]
     sh = d.staff["b1"]
     assert sh.wrong == 1 and sh.served == 1 and d.people["b1"].mood < mood
     assert ("b2", "b1", 0, 1) in d.deltas  # the coworker covers
     assert any(m[0] == "p0" and "wrong beer" in m[1] for m in d.memories)
-    assert any("instead of the Skoloft" in text for text in d.posts)
+    assert any("instead of the Supra Deluxe" in text for text in d.posts)
 
 
 def test_a_spill_costs_the_bartender_a_little_mood_and_makes_no_wrong_order(monkeypatch):
     d = _bar()
     monkeypatch.setattr(staff, "mistake_chance", lambda *a: 1.0)
     monkeypatch.setattr(staff, "roll_mistake", lambda rng: "spill")
-    _run(d.bartender_moment(d.people["p0"], "Skoloft", "b1", _order()))
+    _run(d.bartender_moment(d.people["p0"], "Supra Deluxe", "b1", _order()))
     sh = d.staff["b1"]
     assert sh.spills == 1 and sh.wrong == 0 and d.people["b1"].mood < 0
 
@@ -189,10 +189,10 @@ def test_a_guest_who_trips_the_peeve_sours_the_bartender_a_little(monkeypatch):
     monkeypatch.setattr(staff, "mistake_chance", lambda *a: 0.0)
     d.rng = random.Random(1)
     t = _order(waited=5.0)
-    _run(d.bartender_moment(d.people["p0"], "Skoloft", "b1", t))
+    _run(d.bartender_moment(d.people["p0"], "Supra Deluxe", "b1", t))
     assert d.staff["b1"].peeves == 1 and d.people["b1"].mood < 0
     quick = _order(waited=0.0)
-    _run(d.bartender_moment(d.people["p0"], "Skoloft", "b1", quick))
+    _run(d.bartender_moment(d.people["p0"], "Supra Deluxe", "b1", quick))
     assert d.staff["b1"].peeves == 1
 
 
@@ -200,7 +200,7 @@ def test_a_favourite_regular_cheers_the_bartender_up(monkeypatch):
     d = _bar()
     monkeypatch.setattr(staff, "mistake_chance", lambda *a: 0.0)
     d.social.rels[pair_key("b1", "p0")] = RelState(familiarity=80, affinity=70)
-    _run(d.bartender_moment(d.people["p0"], "Skoloft", "b1", _order()))
+    _run(d.bartender_moment(d.people["p0"], "Supra Deluxe", "b1", _order()))
     assert d.people["b1"].mood > 0
 
 

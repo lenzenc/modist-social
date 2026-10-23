@@ -80,8 +80,8 @@ def test_a_new_drink_breaks_the_streak():
     rng = random.Random(1)
     for _ in range(taste.TIRED_STREAK - 1):
         taste.first_of_visit(rec, FAV, DAY, rng)
-    assert not taste.first_of_visit(rec, "Skoloft", DAY, rng)
-    assert rec.streak == ["Skoloft", 1]
+    assert not taste.first_of_visit(rec, "Supra Deluxe", DAY, rng)
+    assert rec.streak == ["Supra Deluxe", 1]
 
 
 def test_newbies_stick_to_their_drink_and_nerds_roam():
@@ -109,7 +109,7 @@ def test_daily_drift_is_deterministic_and_keeps_the_top_two():
 def test_a_tight_budget_leans_toward_the_specials():
     persona = {"drink": FAV, "beer": "casual", "big5": {"o": 3}}
     rec = taste.seed(persona, random.Random(1))
-    specials = ["Skoloft", "Folklor"]
+    specials = ["Supra Deluxe", "Supra Light"]
     picks = [taste.intend(rec, persona, "", random.Random(i), DAY, specials=specials, tight=True).drink for i in range(300)]
     loose = [taste.intend(rec, persona, "", random.Random(i), DAY, specials=specials, tight=False).drink for i in range(300)]
     assert sum(p in specials for p in picks) > sum(p in specials for p in loose) + 30
@@ -145,7 +145,7 @@ def test_a_drink_lands_and_moves_their_taste():
     taste.after_drink(rec, FAV, "meh")
     assert rec.like[FAV] < taste.LIKE_STEP["loved"]
     for _ in range(taste.HISTORY_KEEP + 5):
-        taste.after_drink(rec, "Skoloft", "fine")
+        taste.after_drink(rec, "Supra Deluxe", "fine")
     assert len(rec.history) == taste.HISTORY_KEEP
 
 
@@ -160,7 +160,7 @@ def test_a_style_they_like_lands_better_than_one_they_do_not():
 def test_the_taste_record_survives_being_saved_and_loaded():
     rec = taste.seed({"drink": FAV}, random.Random(1))
     rec.owes["p1"] = 2
-    rec.tired["Skoloft"] = "2999-01-01"
+    rec.tired["Supra Deluxe"] = "2999-01-01"
     back = taste.TasteRec.load(rec.dump())
     assert back == rec
     assert taste.TasteRec.load({"like": {"A": 0.5}, "junk": 1}).like == {"A": 0.5}
@@ -272,9 +272,9 @@ def test_a_suggestion_the_guest_takes_is_what_gets_poured():
 
     d.charge = charge
     guest = _patron(d)
-    t = _order(intent=taste.Intent("rec"), suggest="Skoloft", take_rec=True, fallback=FAV)
+    t = _order(intent=taste.Intent("rec"), suggest="Supra Deluxe", take_rec=True, fallback=FAV)
     _run(d.finish_order(t))
-    assert charged == ["Skoloft"] and guest.drink == "Skoloft"
+    assert charged == ["Supra Deluxe"] and guest.drink == "Supra Deluxe"
     assert [x["kind"] for x in d.taste_log] == ["rec_taken"]
 
 
@@ -289,8 +289,8 @@ def test_a_suggestion_the_guest_turns_down_gives_way_to_their_fallback():
 
     d.charge = charge
     _patron(d)
-    t = _order(intent=taste.Intent("rec"), suggest="Skoloft", take_rec=False, fallback=FAV)
-    t.order_drink = "Skoloft"  # the bartender's line was recorded as the drink on the way
+    t = _order(intent=taste.Intent("rec"), suggest="Supra Deluxe", take_rec=False, fallback=FAV)
+    t.order_drink = "Supra Deluxe"  # the bartender's line was recorded as the drink on the way
     _run(d.finish_order(t))
     assert charged == [FAV]
     assert [x["kind"] for x in d.taste_log] == ["rec_declined"]
@@ -300,9 +300,9 @@ def test_a_repeat_round_still_takes_the_bartenders_suggestion():
     d = _director()
     d.clock = SimClock(start=NOW)
     guest = _patron(d, drinks=1)
-    t = _order(again=True, suggest="Skoloft", intent=taste.Intent("rec"))
-    d.record_drink(t, d.people["b1"], Utterance(say="Try the Skoloft.", drink="Skoloft"))
-    assert t.order_drink == "Skoloft" and guest.drink == "Skoloft"
+    t = _order(again=True, suggest="Supra Deluxe", intent=taste.Intent("rec"))
+    d.record_drink(t, d.people["b1"], Utterance(say="Try the Supra Deluxe.", drink="Supra Deluxe"))
+    assert t.order_drink == "Supra Deluxe" and guest.drink == "Supra Deluxe"
 
 
 def test_a_repeat_round_ignores_a_bartender_pour_nobody_asked_for():
@@ -310,7 +310,7 @@ def test_a_repeat_round_ignores_a_bartender_pour_nobody_asked_for():
     d.clock = SimClock(start=NOW)
     _patron(d, drinks=1)
     t = _order(again=True)
-    d.record_drink(t, d.people["b1"], Utterance(say="Here's a Skoloft.", drink="Skoloft"))
+    d.record_drink(t, d.people["b1"], Utterance(say="Here's a Supra Deluxe.", drink="Supra Deluxe"))
     assert t.order_drink == ""
 
 
@@ -411,12 +411,12 @@ def test_taste_moves_after_each_drink_and_a_suggestion_that_works_is_remembered(
     d.clock = SimClock(start=NOW)
     _, memories = _posting(d)
     guest = _patron(d, drinks=1)
-    t = _order(suggest="Skoloft")
+    t = _order(suggest="Supra Deluxe")
     monkeypatch.setattr(taste, "verdict", lambda *a, **k: "loved")
-    _run(d.taste_after(guest, "Skoloft", t, "b1", None))
+    _run(d.taste_after(guest, "Supra Deluxe", t, "b1", None))
     rec = d.tastes["p0"]
-    assert "Skoloft" in rec.tried and rec.like["Skoloft"] > 0
-    assert any("suggested the Skoloft" in text for _, text in memories)
+    assert "Supra Deluxe" in rec.tried and rec.like["Supra Deluxe"] > 0
+    assert any("suggested the Supra Deluxe" in text for _, text in memories)
     assert {x["kind"] for x in d.taste_log} >= {"new", "rec_loved"}
 
 
@@ -464,9 +464,9 @@ def _scene(d, t, who):
 def test_the_guest_is_told_the_drink_code_chose():
     d = _director()
     _patron(d, "p0")
-    t = _order(intent=taste.Intent("switch", "Skoloft", "something you like"))
+    t = _order(intent=taste.Intent("switch", "Supra Deluxe", "something you like"))
     ctx = _scene(d, t, "p0").context
-    assert "switch to Skoloft" in ctx and "exact board name" in ctx
+    assert "switch to Supra Deluxe" in ctx and "exact board name" in ctx
 
 
 def test_a_guest_who_wants_the_same_again_is_told_so():
@@ -479,7 +479,7 @@ def test_a_guest_who_wants_the_same_again_is_told_so():
 def test_a_guest_who_asks_for_a_suggestion_is_told_to_ask_and_not_name_a_drink():
     d = _director()
     _patron(d, "p0")
-    t = _order(intent=taste.Intent("rec"), suggest="Skoloft", take_rec=True, fallback=FAV)
+    t = _order(intent=taste.Intent("rec"), suggest="Supra Deluxe", take_rec=True, fallback=FAV)
     req = _scene(d, t, "p0")
     assert "ask the bartender" in req.context and "leave drink empty" in req.context and req.ask_rec and req.want == ""
     assert "Order a drink from the board" not in req.context
@@ -488,19 +488,19 @@ def test_a_guest_who_asks_for_a_suggestion_is_told_to_ask_and_not_name_a_drink()
 def test_the_guest_answers_the_bartenders_suggestion_the_way_code_decided():
     d = _director()
     _patron(d, "p0")
-    lines = [("speech", "p0", "What's good?"), ("speech", "b1", "Try the Skoloft.")]
-    yes = _scene(d, _order(intent=taste.Intent("rec"), suggest="Skoloft", take_rec=True, fallback=FAV, lines=lines), "p0")
-    no = _scene(d, _order(intent=taste.Intent("rec"), suggest="Skoloft", take_rec=False, fallback=FAV, lines=lines), "p0")
-    assert "put Skoloft in drink" in yes.context and yes.want == "Skoloft"
+    lines = [("speech", "p0", "What's good?"), ("speech", "b1", "Try the Supra Deluxe.")]
+    yes = _scene(d, _order(intent=taste.Intent("rec"), suggest="Supra Deluxe", take_rec=True, fallback=FAV, lines=lines), "p0")
+    no = _scene(d, _order(intent=taste.Intent("rec"), suggest="Supra Deluxe", take_rec=False, fallback=FAV, lines=lines), "p0")
+    assert "put Supra Deluxe in drink" in yes.context and yes.want == "Supra Deluxe"
     assert f"order {FAV} instead" in no.context and no.want == FAV
 
 
 def test_the_bartender_is_told_what_to_recommend():
     d = _director()
     _patron(d, "p0")
-    t = _order(intent=taste.Intent("rec"), suggest="Skoloft")
+    t = _order(intent=taste.Intent("rec"), suggest="Supra Deluxe")
     req = _scene(d, t, "b1")
-    assert "Recommend Skoloft by its exact board name" in req.context and req.suggest == "Skoloft"
+    assert "Recommend Supra Deluxe by its exact board name" in req.context and req.suggest == "Supra Deluxe"
     assert "Recommend" not in _scene(d, _order(), "b1").context
 
 
@@ -523,7 +523,7 @@ def _speak(**kw):
 
 def test_mock_guest_orders_the_drink_it_was_told_to():
     for _ in range(20):
-        assert _speak(want="Skoloft").drink == "Skoloft"
+        assert _speak(want="Supra Deluxe").drink == "Supra Deluxe"
 
 
 def test_mock_guest_asks_for_a_suggestion_without_naming_a_drink():
@@ -532,11 +532,11 @@ def test_mock_guest_asks_for_a_suggestion_without_naming_a_drink():
 
 
 def test_mock_bartender_recommends_and_the_guest_takes_or_declines():
-    bt = _speak(is_bartender=True, suggest="Skoloft", last_line="What's good?")
-    assert bt.drink == "Skoloft" and "Skoloft" in bt.say
-    yes = _speak(want="Skoloft", suggest="Skoloft", last_line="Try the Skoloft.")
-    no = _speak(want=FAV, suggest="Skoloft", last_line="Try the Skoloft.")
-    assert yes.drink == "Skoloft" and "take the Skoloft" in yes.say
+    bt = _speak(is_bartender=True, suggest="Supra Deluxe", last_line="What's good?")
+    assert bt.drink == "Supra Deluxe" and "Supra Deluxe" in bt.say
+    yes = _speak(want="Supra Deluxe", suggest="Supra Deluxe", last_line="Try the Supra Deluxe.")
+    no = _speak(want=FAV, suggest="Supra Deluxe", last_line="Try the Supra Deluxe.")
+    assert yes.drink == "Supra Deluxe" and "take the Supra Deluxe" in yes.say
     assert no.drink == FAV and "not today" in no.say
 
 
@@ -547,7 +547,7 @@ def test_mock_repeat_round_stays_with_the_drink_chosen():
 
 
 def test_mock_bartender_offers_another_with_a_suggestion():
-    assert "Skoloft" in _speak(is_bartender=True, again=True, suggest="Skoloft").say
+    assert "Supra Deluxe" in _speak(is_bartender=True, again=True, suggest="Supra Deluxe").say
 
 
 def test_mock_guest_says_when_the_round_is_on_them():
@@ -558,7 +558,7 @@ def test_mock_guest_says_when_the_round_is_on_them():
 
 
 def test_habits_count_repeats_and_variety_among_regulars():
-    steady = [("a", FAV)] * 3 + [("a", "Skoloft")] * 3
+    steady = [("a", FAV)] * 3 + [("a", "Supra Deluxe")] * 3
     always = [("b", FAV)] * 6
     never = [("c", n) for n in menu.names()[:6]]
     h = taste.habits([], steady)

@@ -1,6 +1,5 @@
 import re
 import unicodedata
-from functools import lru_cache
 from pathlib import Path
 
 import yaml
@@ -23,21 +22,42 @@ def _norm(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", text).strip()
 
 
-@lru_cache(maxsize=1)
-def _seed() -> list[dict]:
+def default_board() -> list[dict]:
+    """The snapshot of what is on tap that ships in drinks.yaml; the director replaces it with the live board at each start."""
     return yaml.safe_load(DRINKS_FILE.read_text())
 
 
-_released: list[dict] = []  # beers that have joined the board since opening, in order: see sim.occasions
+_board: list[dict] = default_board()  # what is on tap right now: see sim.taplist
 
 
-def set_released(entries: list[dict]) -> None:
-    """Put released beers on the board (the director calls this on load and on release night)."""
-    _released[:] = [{k: v for k, v in e.items() if k != "blurb"} for e in entries]
+def set_board(entries: list[dict]) -> None:
+    """Put these drinks on the board (the director calls this on load once it has read the website)."""
+    _board[:] = [dict(e) for e in entries]
 
 
 def drinks() -> list[dict]:
-    return _seed() + _released
+    return _board
+
+
+def kind(name: str) -> str | None:
+    """beer, hard_seltzer, thc_seltzer or thc_soda; None for water or an unknown name."""
+    return next((d.get("kind", "beer") for d in drinks() if d["name"] == name), None)
+
+
+def is_mainstay(name: str) -> bool:
+    return any(d["name"] == name and d.get("mainstay") for d in drinks())
+
+
+def beers(mainstay: bool | None = None) -> list[str]:
+    """Names of the beers on tap, optionally only the mainstays (True) or only the rest (False)."""
+    return [d["name"] for d in drinks() if d.get("kind", "beer") == "beer" and (mainstay is None or bool(d.get("mainstay")) == mainstay)]
+
+
+def strength_label(d: dict) -> str:
+    """'5.2%' for a drink with alcohol, '10 mg THC' for a THC one, '' when neither is stated."""
+    if d.get("thc_mg"):
+        return f"{d['thc_mg']:g} mg THC"
+    return f"{d['abv']:g}%" if d.get("abv") else ""
 
 
 def names() -> list[str]:
@@ -66,6 +86,8 @@ def abv(name: str) -> float | None:
 
 
 def _section(d: dict) -> int:
+    if d.get("kind", "beer") != "beer":
+        return 0
     s = f"{d['style']} {d['name']}".lower()
     for i, (_, keys) in enumerate(SECTIONS[:-1]):
         if any(k in s for k in keys):
@@ -87,7 +109,8 @@ def render_tap_list() -> str:
             continue
         lines.append(f"{title}:")
         for d in group:
-            abv = f" - {d['abv']:g}%" if d.get("abv") else ""
-            lines.append(f"- {d['name']} - {d['style']}{abv} - {d['note']}")
+            strength = f" - {label}" if (label := strength_label(d)) else ""
+            star = " (mainstay)" if d.get("mainstay") else ""
+            lines.append(f"- {d['name']}{star} - {d['style']}{strength} - {d['note']}")
     lines.append(f"Always free: {WATER}")
     return "\n".join(lines)

@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     groups_enabled: bool = True
     groups_per_week: float = 30.0
 
+    # Check modistbrewing.com for what is on tap at each start (free: no LLM). New drinks become releases, gone ones leave the board.
+    tap_sync: bool = True
+    tap_url: str = "https://modistbrewing.com/drinks/"
+
     # Tell speakers which phrases and openers the room has worn out (see sim/realism.py). Costs a few input tokens a turn.
     realism_feedback: bool = True
 

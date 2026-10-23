@@ -25,6 +25,26 @@ def test_specials_are_stable_per_day_and_on_the_menu():
     assert sales.specials(MON_4PM) != sales.specials(datetime(2026, 10, 20, 16, 0))
 
 
+def test_specials_are_a_mainstay_beer_and_two_other_beers():
+    for day in range(20):
+        a = sales.specials(datetime(2026, 10, 1 + day, 16, 0))
+        assert len(a) == 3 and set(a) <= set(menu.beers())
+        assert sum(menu.is_mainstay(n) for n in a) >= 1 and any(n in menu.beers(mainstay=True) for n in a)
+    # the mainstay is a beer, never a seltzer or THC drink, even though those are mainstays too
+    assert not any(menu.kind(n) != "beer" for d in range(20) for n in sales.specials(datetime(2026, 10, 1 + d, 16, 0)))
+
+
+def test_specials_cope_with_a_board_short_of_beers():
+    keep = [d for d in menu.default_board() if d["kind"] == "beer"][:2] + [d for d in menu.default_board() if d["kind"] != "beer"]
+    menu.set_board(keep)
+    try:
+        assert sorted(sales.specials(MON_4PM)) == sorted(menu.beers())
+        menu.set_board([d for d in keep if d["kind"] != "beer" or not d["mainstay"]])
+        assert len(sales.specials(MON_4PM)) == min(3, len(menu.beers()))
+    finally:
+        menu.set_board(menu.default_board())
+
+
 def test_price_is_half_only_for_todays_specials_in_happy_hour():
     special = sales.specials(MON_4PM)[0]
     other = next(n for n in menu.names() if n not in sales.specials(MON_4PM))
