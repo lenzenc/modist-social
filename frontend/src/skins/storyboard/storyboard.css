@@ -1,0 +1,31 @@
+/* Storyboard: ink-dark reading view, dialogue in a serif, every voice in its own color. */
+html[data-skin="storyboard"] {
+  --canvas: #0f1115;
+  --panel: #171a21;
+  --panel-2: #1f232c;
+  --ink: #eceef2;
+  --muted: #8f95a3;
+  --border: #2a2f3a;
+  --accent: #e8b86d;
+  --ok: #6ee7a8;
+  --sidebar: #0b0d11;
+  --sidebar-text: #c9cdd6;
+  --sidebar-active: #2a2f3a;
+  --sidebar-hover: #171a21;
+  --bg: #1f232c;
+  --track: rgb(255 255 255 / 0.1);
+  --live-glow: rgb(232 184 109 / 0.22);
+  --font-display: "Space Grotesk Variable", system-ui, sans-serif;
+  --font-body: "Space Grotesk Variable", system-ui, sans-serif;
+  --font-serif: "Literata Variable", Georgia, serif;
+}
+html[data-skin="storyboard"] body {
+  background:
+    radial-gradient(900px 300px at 50% 0%, rgb(232 184 109 / 0.06), transparent 70%),
+    var(--canvas);
+}
+html[data-skin="storyboard"] .font-serif { font-family: var(--font-serif); }
+html[data-skin="storyboard"] .panel { background: var(--panel); border: 1px solid var(--border); }
+html[data-skin="storyboard"] .panel.live { border-color: rgb(232 184 109 / 0.5); }
+html[data-skin="storyboard"] .cast::-webkit-scrollbar { height: 6px; }
+html[data-skin="storyboard"] .direction { font-variant-caps: all-small-caps; letter-spacing: 0.06em; }

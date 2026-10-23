@@ -1,0 +1,30 @@
+/* Control Room: graphite, hairlines, mono labels, one cyan accent. */
+html[data-skin="control"] {
+  --canvas: #08090b;
+  --panel: #0f1114;
+  --panel-2: #15181d;
+  --ink: #e6e8eb;
+  --muted: #7d8590;
+  --border: #22262c;
+  --accent: #3fd0ff;
+  --ok: #3ddc84;
+  --warn: #f5b32b;
+  --bad: #ff5c5c;
+  --violet: #b48cff;
+  --sidebar: #0b0d10;
+  --sidebar-text: #c9ced4;
+  --sidebar-active: #1b2a33;
+  --sidebar-hover: #15181d;
+  --bg: #15181d;
+  --track: rgb(255 255 255 / 0.08);
+  --badge-bg: rgb(63 208 255 / 0.15);
+  --badge-ink: #3fd0ff;
+  --font-display: "JetBrains Mono Variable", ui-monospace, monospace;
+  --font-body: "Plus Jakarta Sans Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+}
+html[data-skin="control"] .cell { border-right: 1px solid var(--border); }
+html[data-skin="control"] .lbl { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+html[data-skin="control"] .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+html[data-skin="control"] .tl-live { filter: drop-shadow(0 0 3px var(--accent)); }
+html[data-skin="control"] select { font-family: var(--font-mono); font-size: 12px; }
