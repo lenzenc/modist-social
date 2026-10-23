@@ -4,7 +4,7 @@ import "@fontsource-variable/space-grotesk";
 import "../shared/skin-base.css";
 import "./storyboard.css";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar } from "../../components/Avatar";
 import { Controls } from "../../components/Controls";
 import { StatsBar } from "../../components/StatsBar";
@@ -163,18 +163,18 @@ function Reader({ channel }: { channel: string }) {
   );
 }
 
-function Direction({ m }: { m: Msg }) {
+const Direction = memo(function Direction({ m }: { m: Msg }) {
   return (
     <div className={`bubble-in direction my-2 text-center text-[13px] ${m.kind === "system" ? "text-[var(--muted)]/70" : "text-[var(--muted)]"}`}>
       <span className="mr-2 text-[10px] tracking-normal opacity-60" style={{ fontVariantCaps: "normal" }}>{fmtTime(m.sim_ts)}</span>
       {m.text}
     </div>
   );
-}
+});
 
 const PREVIEW = 6;
 
-function Panel({ t }: { t: Thread }) {
+const Panel = memo(function Panel({ t }: { t: Thread }) {
   const msgs = useStore((s) => s.threadMsgs[t.id]) ?? [];
   const typing = useStore((s) => s.typing[t.id]) ?? [];
   const people = useStore((s) => s.people);
@@ -215,9 +215,9 @@ function Panel({ t }: { t: Thread }) {
       </div>
     </section>
   );
-}
+});
 
-function Line({ m, grouped }: { m: Msg; grouped: boolean }) {
+const Line = memo(function Line({ m, grouped }: { m: Msg; grouped: boolean }) {
   if (m.kind !== "speech" || !m.speaker_id) {
     return (
       <div className={`direction my-1.5 text-center text-[12.5px] text-[var(--muted)] ${m.kind === "action" ? "" : "opacity-70"}`}>
@@ -230,7 +230,7 @@ function Line({ m, grouped }: { m: Msg; grouped: boolean }) {
       <span className="font-serif text-[15.5px] leading-relaxed">{m.text}</span>
     </Bubble>
   );
-}
+});
 
 function Bubble({ id, grouped, time, children }: { id: string; grouped: boolean; time?: string; children: React.ReactNode }) {
   const p = useStore((s) => s.people[id]);

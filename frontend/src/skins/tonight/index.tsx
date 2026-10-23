@@ -5,7 +5,7 @@ import "@fontsource/caveat";
 import "../shared/skin-base.css";
 import "./tonight.css";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Avatar } from "../../components/Avatar";
 import { Controls } from "../../components/Controls";
 import { MessageRow, TypingLine } from "../../components/MessageRow";
@@ -356,7 +356,7 @@ function Board({ zone }: { zone: string | null }) {
   );
 }
 
-function LiveCard({ t }: { t: Thread }) {
+const LiveCard = memo(function LiveCard({ t }: { t: Thread }) {
   const presence = useStore((s) => s.presence);
   const people = useStore((s) => s.people);
   const msgs = useStore((s) => s.threadMsgs[t.id]);
@@ -426,7 +426,7 @@ function LiveCard({ t }: { t: Thread }) {
       <TypingLine ids={(typing ?? []).filter((i) => people[i])} />
     </div>
   );
-}
+});
 
 function Bubble({ m: mm }: { m: Msg }) {
   const p = useStore((s) =>
@@ -444,7 +444,7 @@ function Bubble({ m: mm }: { m: Msg }) {
   );
 }
 
-function EndedChip({ t }: { t: Thread }) {
+const EndedChip = memo(function EndedChip({ t }: { t: Thread }) {
   const presence = useStore((s) => s.presence);
   const people = useStore((s) => s.people);
   const openThreadPane = useStore((s) => s.openThreadPane);
@@ -467,4 +467,4 @@ function EndedChip({ t }: { t: Thread }) {
       </span>
     </button>
   );
-}
+});
