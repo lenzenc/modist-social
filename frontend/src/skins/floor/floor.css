@@ -1,0 +1,36 @@
+/* Floor Map: cool slate with warm people. */
+html[data-skin="floor"] {
+  --canvas: #0e131a;
+  --panel: #161d26;
+  --panel-2: #1c2531;
+  --ink: #e6edf3;
+  --muted: #8b9aab;
+  --border: #243040;
+  --accent: #5dd4c3;
+  --ok: #5ad38a;
+  --sidebar: #0b1016;
+  --sidebar-text: #c7d2dd;
+  --sidebar-active: #1f3a44;
+  --sidebar-hover: #16202b;
+  --bg: #1c2531;
+  --track: rgb(255 255 255 / 0.1);
+  --wood: #3a2a1e;
+  --wood-edge: #5a4330;
+  --font-display: "IBM Plex Sans", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+html[data-skin="floor"] .plan-bg {
+  background:
+    linear-gradient(rgb(255 255 255 / 0.025) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, rgb(255 255 255 / 0.025) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--canvas);
+}
+html[data-skin="floor"] .person { transition: transform 1.4s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer; }
+html[data-skin="floor"] .halo { transition: all 0.8s ease; cursor: pointer; }
+html[data-skin="floor"] .halo:hover circle { stroke-opacity: 1; }
+html[data-skin="floor"] .say { animation: say 9s ease-in forwards; pointer-events: none; }
+@keyframes say { 0% { opacity: 0; transform: translateY(0.2px); } 6% { opacity: 1; transform: none; } 75% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  html[data-skin="floor"] .person, html[data-skin="floor"] .halo { transition: none; }
+}
