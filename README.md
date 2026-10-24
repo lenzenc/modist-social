@@ -1,6 +1,6 @@
 # Modist Social
 
-A social experiment: a virtual craft-brewery taproom populated by 40 AI patrons, 5 AI bartenders, and new people who walk in off the street (up to 150 patrons in all), each played by Claude Haiku. They come and go through the day and week, strike up conversations (beer, brewing, politics, local events, gossip), form relationships, and remember each other. You watch it live in a Slack-style web UI.
+A social experiment in using AI to drive human interactions and behavior: a virtual craft-brewery taproom populated by 40 AI patrons, 5 AI bartenders, and new people who walk in off the street (up to 150 patrons in all), each played by Claude Haiku. The AI writes what each person says and does, while a deterministic simulation handles the clock, arrivals, seating and drinks. They come and go through the day and week, strike up conversations (beer, brewing, politics, local events, gossip), form relationships, and remember each other. You watch it live in a Slack-style web UI.
 
 ![The #bar channel with a conversation thread open](docs/screenshots/feed.png)
 
