@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Channel, Clock, GodAssessment, Msg, Person, Presence, Profile, Stats, Thread, WsEvent } from "./types";
+import type { Channel, Clock, GodAssessment, Msg, Person, Presence, Profile, Stats, Thread, Tonight, WsEvent } from "./types";
 
 interface Feed {
   threads: Thread[];
@@ -31,6 +31,10 @@ interface State {
   bootstrap: () => Promise<void>;
   selectChannel: (id: string) => Promise<void>;
   loadLiveThreads: () => Promise<void>;
+  /** Every live conversation with its transcript so far, for views that follow several at once. */
+  watchLive: () => Promise<void>;
+  tonight: Tonight | null;
+  loadTonight: () => Promise<void>;
   openThreadPane: (id: number | null) => Promise<void>;
   openProfile: (id: string | null) => Promise<void>;
   assessGod: (text: string) => Promise<GodAssessment>;
@@ -75,6 +79,7 @@ export const useStore = create<State>((set, get) => ({
   openThread: null,
   profile: null,
   profileId: null,
+  tonight: null,
 
   bootstrap: async () => {
     const b = await api<{
@@ -88,7 +93,7 @@ export const useStore = create<State>((set, get) => ({
       banner: string;
     }>("/api/bootstrap");
     const presence: Record<string, Presence> = {};
-    for (const p of b.people) if (p.present) presence[p.id] = { id: p.id, location: p.location, thread_id: p.thread_id, seated: p.seated, drink: p.drink, tier: p.tier, stool: p.stool, table: p.table, party: p.party };
+    for (const p of b.people) if (p.present) presence[p.id] = { ...get().presence[p.id], id: p.id, location: p.location, thread_id: p.thread_id, seated: p.seated, drink: p.drink, tier: p.tier, stool: p.stool, table: p.table, party: p.party };
     set({
       channels: b.channels,
       people: Object.fromEntries(b.people.map((p) => [p.id, p])),
@@ -125,6 +130,18 @@ export const useStore = create<State>((set, get) => ({
     const live = feeds.flatMap((f) => f.threads).filter((t) => !t.ended_at);
     set((s) => ({ threads: { ...Object.fromEntries(live.map((t) => [t.id, t])), ...s.threads } }));
   },
+
+  watchLive: async () => {
+    await get().loadLiveThreads();
+    await Promise.all(
+      Object.values(get().threads).map(async (t) => {
+        const msgs = await api<Msg[]>(`/api/threads/${t.id}/messages`);
+        set((s) => ({ threadMsgs: { ...s.threadMsgs, [t.id]: mergeMsgs(s.threadMsgs[t.id] ?? [], msgs) } }));
+      }),
+    );
+  },
+
+  loadTonight: async () => set({ tonight: await api<Tonight>("/api/tonight") }),
 
   openThreadPane: async (id) => {
     set({ openThread: id, profile: id ? null : get().profile, profileId: id ? null : get().profileId });

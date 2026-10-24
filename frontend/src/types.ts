@@ -23,6 +23,16 @@ export interface Presence {
   party?: number | null;
   /** sober | tipsy | drunk | wasted */
   tier?: string;
+  waiting?: boolean;
+  /** How they feel right now: mood -1..1, buzz 0..1, social battery 0..1, and a pending need ("" when none). */
+  mood?: number;
+  buzz?: number;
+  battery?: number;
+  need?: string;
+  /** Doing something solo (phone, reading) and not up for a chat. */
+  busy?: boolean;
+  cut_off?: boolean;
+  arrived_at?: string | null;
 }
 
 export interface Msg {
@@ -46,6 +56,14 @@ export interface Thread {
   count: number;
   last: { speaker_id: string; text: string } | null;
   table?: number | null;
+  /** lively | easy | flat | tense */
+  vibe?: string;
+  tension?: number;
+  on_event?: boolean;
+  outsider?: string;
+  split_from?: number | null;
+  /** beer | civic | town | gossip | sports | life | culture | story | event | other (or the thread kind for orders and staff) */
+  topic?: string;
 }
 
 export interface Channel {
@@ -164,3 +182,11 @@ export type WsEvent =
   | { type: "relationships"; people: string[] }
   | { type: "person"; person: Person }
   | { type: "sale"; payment_id: number; person_id: string; status: string };
+
+/** The night so far: where everyone was and how they felt every few sim minutes, plus the door log. */
+export interface Tonight {
+  opened: string | null;
+  /** Each sample: [id, location, thread id, mood, buzz, battery, drinks so far, need, cut off] for everyone present. */
+  samples: { t: string; p: [string, string | null, number | null, number, number, number, number, string, boolean][] }[];
+  events: Msg[];
+}

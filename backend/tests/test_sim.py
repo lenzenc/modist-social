@@ -665,5 +665,6 @@ def test_night_log_samples_every_few_minutes_and_resets():
     d.sample_night(t0 + timedelta(minutes=2))  # too soon
     d.sample_night(t0 + timedelta(minutes=6))
     assert len(d.night) == 2 and d.night[0]["p"][0][:2] == ["p0", "bar"]
+    assert d.night[0]["p"][0][6:] == [0, "", False]  # drinks, need, cut off
     d.start_night(t0 + timedelta(days=1))
     assert d.night == [] and d.night_open == t0 + timedelta(days=1)

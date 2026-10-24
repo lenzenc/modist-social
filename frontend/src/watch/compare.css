@@ -1,0 +1,12 @@
+.cmp { position: fixed; inset: 0; overflow: auto; background: #f1f0ec; color: #1c1b19; font-family: system-ui, sans-serif; padding: 24px 28px 40px; }
+.cmp header h1 { margin: 0 0 4px; font-size: 26px; font-weight: 650; letter-spacing: -0.01em; }
+.cmp header p { margin: 0 0 20px; color: #5d5a54; }
+.cmp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 24px; align-items: start; }
+.cmp-card { background: #fff; border-radius: 10px; padding: 14px; }
+.cmp-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.cmp-head h2 { margin: 0; font-size: 18px; }
+.cmp-head p { margin: 2px 0 0; font-size: 13px; color: #5d5a54; max-width: 38ch; }
+.cmp-head a { align-self: flex-start; font-size: 13px; font-weight: 600; color: #1c1b19; background: #e4e1d8; border-radius: 6px; padding: 6px 10px; text-decoration: none; white-space: nowrap; }
+.cmp-head a:hover { background: #d8d4c8; }
+.cmp-frame { position: relative; overflow: hidden; border-radius: 6px; background: #ddd; }
+.cmp-frame iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: top left; }

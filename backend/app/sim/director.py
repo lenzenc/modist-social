@@ -537,7 +537,7 @@ class Director:
             return
         self._night_next = now + timedelta(minutes=NIGHT_EVERY)
         self.night.append({"t": now.isoformat(), "p": [
-            [p.id, p.location, p.thread_id, round(p.mood, 2), round(p.buzz, 2), round(p.battery, 2)]
+            [p.id, p.location, p.thread_id, round(p.mood, 2), round(p.buzz, 2), round(p.battery, 2), p.drinks, p.need, p.cut_off]
             for p in self.people.values() if p.present]})
 
     def start_night(self, now: datetime) -> None:
