@@ -31,6 +31,8 @@ LAST_CALL_MIN = 30
 WAIT_BEFORE_INTERRUPT = timedelta(minutes=2)  # a guest in line this long gets a chatting bartender
 TICK = 0.5  # real seconds
 SOCIAL_EVERY = 2.0  # real seconds
+PRESENCE_EVERY = 0.75  # real seconds between presence broadcasts, so a packed room doesn't flood the socket
+NIGHT_EVERY = 5  # sim minutes between samples in the night log
 LINE_BUDGET = 60.0  # sim seconds the pace governor lets one model call cost, at most
 CROWD_LEVELS = (0.6, 1.0, 1.6, 2.5)
 GOD_ROSTER = 70  # most people described to the model when it scores a God Mode event
@@ -121,6 +123,11 @@ class Director:
         self._last_social_sim: datetime | None = None
         self._last_social_real = 0.0
         self._last_clock_pub = 0.0
+        self._last_presence_pub = 0.0
+        self._presence_flush: asyncio.TimerHandle | None = None
+        self.night: list[dict] = []  # tonight's samples of where everyone is and how they feel, for the watch views
+        self.night_open: datetime | None = None
+        self._night_next: datetime | None = None
         self._last_stats_pub = 0.0
         self._last_save = 0.0
 
@@ -494,14 +501,47 @@ class Director:
         return p
 
     def presence(self) -> list[dict]:
+        now = self.clock.now()
         return [
             {"id": p.id, "location": p.location, "thread_id": p.thread_id, "seated": p.seated, "drink": p.drink,
-             "stool": p.stool, "table": p.table, "party": p.party, "waiting": p.waiting, "tier": drunk.tier(p.buzz)}
+             "stool": p.stool, "table": p.table, "party": p.party, "waiting": p.waiting, "tier": drunk.tier(p.buzz),
+             "mood": round(p.mood, 2), "buzz": round(p.buzz, 2), "battery": round(p.battery, 2), "need": p.need,
+             "busy": bool(p.busy_until and p.busy_until > now), "cut_off": p.cut_off,
+             "arrived_at": p.arrived_at.isoformat() if p.arrived_at else None}
             for p in self.people.values() if p.present
         ]
 
     def publish_presence(self) -> None:
+        """Broadcast who is where and how they feel, at most once per PRESENCE_EVERY; a call inside the gap is flushed at its end."""
+        now = time.monotonic()
+        wait = PRESENCE_EVERY - (now - self._last_presence_pub)
+        if wait > 0:
+            if self._presence_flush is None:
+                try:
+                    self._presence_flush = asyncio.get_running_loop().call_later(wait, self._flush_presence)
+                except RuntimeError:
+                    pass  # no loop (a unit test): skip the trailing flush
+            return
+        self._flush_presence()
+
+    def _flush_presence(self) -> None:
+        if self._presence_flush is not None:
+            self._presence_flush.cancel()
+            self._presence_flush = None
+        self._last_presence_pub = time.monotonic()
         bus.publish({"type": "presence", "people": self.presence()})
+
+    def sample_night(self, now: datetime) -> None:
+        """Every NIGHT_EVERY sim minutes while open, note where everyone is and how they feel."""
+        if self._night_next is not None and now < self._night_next:
+            return
+        self._night_next = now + timedelta(minutes=NIGHT_EVERY)
+        self.night.append({"t": now.isoformat(), "p": [
+            [p.id, p.location, p.thread_id, round(p.mood, 2), round(p.buzz, 2), round(p.battery, 2)]
+            for p in self.people.values() if p.present]})
+
+    def start_night(self, now: datetime) -> None:
+        self.night, self.night_open, self._night_next = [], now, None
 
     def publish_relationships(self, ids: list[str]) -> None:
         bus.publish({"type": "relationships", "people": ids})
@@ -535,9 +575,18 @@ class Director:
                 "id": t.id, "channel": t.channel, "kind": t.kind, "started_at": t.started.isoformat(),
                 "ended_at": ended.isoformat() if ended else None, "participants": list(t.ever),
                 "root_text": self._root_text(t), "count": len(t.lines), "table": t.table,
+                "vibe": dynamics.vibe_word(t.vibe, t.tension), "tension": round(t.tension, 2), "on_event": t.on_event,
+                "outsider": t.outsider, "split_from": t.split_from, "topic": self._topic(t),
                 "last": {"speaker_id": last[0], "text": last[1]} if last else None,
             },
         }
+
+    def _topic(self, t: ThreadState) -> str:
+        """What a chat is about, read off its last few lines (code, no model call)."""
+        if t.kind != "chat":
+            return t.kind
+        text = " ".join(x for k, _, x in t.lines[-6:] if k == "speech")
+        return realism.topic_of(text, t.on_event)
 
     def _root_text(self, t: ThreadState) -> str:
         people = [self.people[m] for m in t.ever if m in self.people]
@@ -575,6 +624,8 @@ class Director:
         }})
         if thread:
             bus.publish(self.thread_event(thread))
+            if kind == "speech":
+                self.publish_presence()  # mood and battery move with every line
 
     async def beat(self, p: PersonState, text: str, thread: ThreadState | None = None) -> None:
         """Something a person does rather than says, shown under their name."""
@@ -1700,6 +1751,7 @@ class Director:
             self.crowd_days[day] = max(self.crowd_days.get(day, 0.0), self.crowd)
             if self.opened_day != day:
                 self.opened_day = day
+                self.start_night(now)
                 await self.post("door", "🔓 Modist Social is open.", kind="system")
                 if sales.happy_hour(now):
                     await self.post("door", "🍻 Happy hour until 6pm: half price on " + _names(sales.specials(now)) + ".", kind="system")
@@ -1729,9 +1781,12 @@ class Director:
         if is_open(now):
             await self.environment_step(now)
             self.maybe_refresh_beats(now)
+            self.sample_night(now)
         for p in self.patrons():
             if p.present:
                 human.tick(p, dt_min, drunk.decay_mult(p, now))
+        if time.monotonic() - self._last_presence_pub > 3:
+            self.publish_presence()  # moods drift between lines too
         await self.staff_step(dt_min)
         await self.sloppy_step(dt_min)
         for p in self.patrons():

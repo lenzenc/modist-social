@@ -87,6 +87,20 @@ async def bootstrap():
     }
 
 
+@app.get("/api/tonight")
+async def tonight():
+    """Everything since the doors opened: samples of where everyone was and how they felt, plus the door log."""
+    opened = director.night_open
+    events: list[dict] = []
+    if opened:
+        async with Session() as s:
+            rows = (await s.scalars(
+                select(Message).where(Message.channel == "door", Message.sim_ts >= opened).order_by(Message.id)
+            )).all()
+        events = [_msg(m) for m in rows]
+    return {"opened": opened.isoformat() if opened else None, "samples": director.night, "events": events}
+
+
 @app.get("/api/channels/{channel}/feed")
 async def feed(channel: str, limit: int = 60):
     if channel not in CHANNELS:

@@ -629,3 +629,41 @@ def test_god_set_and_clear_round_trip(monkeypatch):
     asyncio.run(d.clear_god())
     assert d.god is None and "god" not in saved and d.clock_event()["god"] is None
     assert len(posts) == 3
+
+
+def test_presence_carries_how_people_feel():
+    d = _director()
+    p = d.people["p0"]
+    p.present, p.location, p.mood, p.buzz, p.battery, p.need = True, "bar", 0.4567, 0.31, 0.5, "air"
+    row = next(r for r in d.presence() if r["id"] == "p0")
+    assert (row["mood"], row["buzz"], row["battery"], row["need"]) == (0.46, 0.31, 0.5, "air")
+    assert row["busy"] is False and row["cut_off"] is False and row["arrived_at"] is None
+
+
+def test_thread_event_carries_vibe_and_topic():
+    from app.sim.state import ThreadState
+
+    d = _director()
+    t = ThreadState(id=1, channel="inside-tables", kind="chat", started=d.clock.now(), members=["p0", "p1"],
+                    ever=dict.fromkeys(["p0", "p1"]), max_turns=8)
+    t.lines = [("speech", "p0", "That new hazy IPA has great hops."), ("speech", "p1", "The yeast, though, wow.")]
+    t.vibe = 0.5
+    ev = d.thread_event(t)["thread"]
+    assert ev["vibe"] == "lively" and ev["topic"] == "beer" and ev["tension"] == 0 and ev["on_event"] is False
+    t.on_event = True
+    assert d.thread_event(t)["thread"]["topic"] == "event"
+
+
+def test_night_log_samples_every_few_minutes_and_resets():
+    from datetime import datetime, timedelta
+
+    d = _director()
+    d.people["p0"].present, d.people["p0"].location = True, "bar"
+    t0 = datetime(2026, 10, 23, 16, 0)
+    d.start_night(t0)
+    d.sample_night(t0)
+    d.sample_night(t0 + timedelta(minutes=2))  # too soon
+    d.sample_night(t0 + timedelta(minutes=6))
+    assert len(d.night) == 2 and d.night[0]["p"][0][:2] == ["p0", "bar"]
+    d.start_night(t0 + timedelta(days=1))
+    assert d.night == [] and d.night_open == t0 + timedelta(days=1)
