@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useStore } from "../../store";
+import { selThreadMsgs, selThreads, selTyping, useThrottled } from "./useThrottled";
 import type { Msg, Thread } from "../../types";
 
 export interface Live {
@@ -14,9 +14,9 @@ const ORDER = { chat: 0, order: 1, staff: 2 } as const;
 
 /** Every conversation going on right now, newest talk first. Orders and staff chatter come after real chats. */
 export function useLive(): Live[] {
-  const threads = useStore((s) => s.threads);
-  const threadMsgs = useStore((s) => s.threadMsgs);
-  const typing = useStore((s) => s.typing);
+  const threads = useThrottled(selThreads, 400);
+  const threadMsgs = useThrottled(selThreadMsgs, 400);
+  const typing = useThrottled(selTyping, 400);
   return useMemo(
     () =>
       Object.values(threads)

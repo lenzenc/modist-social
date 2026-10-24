@@ -10,6 +10,7 @@ const PAD = { l: 44, r: 16, t: 14, b: 22 };
 export function Timeline() {
   const tonight = useStore((s) => s.tonight);
   const now = useStore((s) => s.clock?.sim_now);
+  const open = useStore((s) => s.clock?.open ?? true);
   const box = useRef<HTMLDivElement>(null);
   const [w, setW] = useState(900);
   const [hover, setHover] = useState<number | null>(null);
@@ -25,7 +26,9 @@ export function Timeline() {
   const data = useMemo(() => {
     if (!tonight?.opened || !now) return null;
     const t0 = new Date(tonight.opened).getTime();
-    const t1 = Math.max(new Date(now).getTime(), t0 + 2 * 3600e3);
+    const lastSample = tonight.samples.length ? new Date(tonight.samples[tonight.samples.length - 1].t).getTime() + 5 * 60e3 : t0;
+    // While the doors are shut the sheet is last night's: end it where the night ended.
+    const t1 = Math.max(open ? new Date(now).getTime() : lastSample, t0 + 2 * 3600e3);
     const rows = tonight.samples.map((s) => {
       const mood = s.p.length ? s.p.reduce((a, r) => a + r[3], 0) / s.p.length : 0;
       return { t: new Date(s.t).getTime(), n: s.p.length, mood, talking: s.p.filter((r) => r[2] != null).length };
@@ -35,7 +38,7 @@ export function Timeline() {
       return kind ? [{ t: new Date(e.sim_ts).getTime(), kind, text: plain(e.text) }] : [];
     });
     return { t0, t1, rows, marks, max: Math.max(10, ...rows.map((r) => r.n)) };
-  }, [tonight, now]);
+  }, [tonight, now, open]);
 
   if (!data) return <section className="tw-time"><h2>Tonight</h2><p className="tw-empty">The night log starts when the doors open.</p></section>;
 
@@ -49,14 +52,15 @@ export function Timeline() {
     : "";
   const line = data.rows.map((r, i) => `${i ? "L" : "M"}${x(r.t)},${Math.max(PAD.t, Math.min(PAD.t + ih, yM(r.mood)))}`).join(" ");
   const hours: number[] = [];
-  for (let t = Math.ceil(data.t0 / 3600e3) * 3600e3; t <= data.t1; t += 3600e3) hours.push(t);
+  const stride = Math.max(1, Math.ceil(64 / (iw / ((data.t1 - data.t0) / 3600e3))));
+  for (let t = Math.ceil(data.t0 / 3600e3) * 3600e3, i = 0; t <= data.t1; t += 3600e3, i++) if (i % stride === 0) hours.push(t);
   const hovered = hover != null ? data.rows[hover] : null;
   const lastRow = data.rows[data.rows.length - 1];
 
   return (
     <section className="tw-time" aria-label="Tonight so far">
       <h2>
-        Tonight
+        {open ? "Tonight" : "Last night"}
         {lastRow && <span>{lastRow.n} here, mood {lastRow.mood > 0.1 ? "up" : lastRow.mood < -0.1 ? "down" : "level"}</span>}
       </h2>
       <div ref={box} className="tw-time-chart">
@@ -84,7 +88,7 @@ export function Timeline() {
           {hovered && (
             <g>
               <line x1={x(hovered.t)} x2={x(hovered.t)} y1={PAD.t} y2={PAD.t + ih} className="tw-hover" />
-              <circle cx={x(hovered.t)} cy={Math.max(PAD.t, Math.min(PAD.t + ih, yM(hovered.mood)))} r={4} fill={moodColor(hovered.mood * 1.6)} stroke="#14243a" />
+              <circle cx={x(hovered.t)} cy={Math.max(PAD.t, Math.min(PAD.t + ih, yM(hovered.mood)))} r={4} fill={moodColor(hovered.mood)} stroke="#14243a" />
             </g>
           )}
           <rect

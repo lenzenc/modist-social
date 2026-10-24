@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useStore } from "../../store";
 import { actionText } from "../shared/text";
 import { placeOf, type Live } from "../shared/useLive";
+import { selThreadMsgs, useThrottled } from "../shared/useThrottled";
 import { stripOf, TOPIC_COLOR, TOPIC_WORD } from "./topics";
 
 const names = (ids: string[], people: ReturnType<typeof useStore.getState>["people"]) =>
@@ -71,7 +72,7 @@ export function Rack({ live, followed, ended, onToggle }: {
   onToggle: (id: number) => void;
 }) {
   const people = useStore((s) => s.people);
-  const threadMsgs = useStore((s) => s.threadMsgs);
+  const threadMsgs = useThrottled(selThreadMsgs, 400);
   const chats = live.filter((l) => l.thread.kind === "chat").length;
   const heated = live.filter((l) => stripOf(l.thread) === "heated").length;
 

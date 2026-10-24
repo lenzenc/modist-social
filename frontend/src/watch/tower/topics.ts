@@ -34,7 +34,7 @@ export type Strip = "chat" | "order" | "heated" | "staff";
 export function stripOf(t: Thread): Strip {
   if (t.kind === "order") return "order";
   if (t.kind === "staff") return "staff";
-  return (t.tension ?? 0) >= 0.6 || t.vibe === "tense" || t.on_event ? "heated" : "chat";
+  return (t.tension ?? 0) >= 0.6 || t.vibe === "tense" ? "heated" : "chat";
 }
 
 export const STRIP_FILL: Record<Strip, string> = {

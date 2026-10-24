@@ -16,9 +16,9 @@ export function ramp(stops: string[], t: number): string {
   return toHex(a.map((v, k) => v + (b[k] - v) * f) as RGB);
 }
 
-/** Mood -1..1: cold slate-blue when low, neutral sand in the middle, amber-orange when high. */
+/** Mood -1..1: cold slate-blue when low, neutral sand in the middle, amber-orange when high. Real moods sit between about -0.5 and 0.6, so the scale is stretched to show it. */
 export const MOOD_STOPS = ["#2f5f9e", "#7fa3c7", "#d8d3c4", "#eaa84b", "#d9692a"];
-export const moodColor = (m = 0) => ramp(MOOD_STOPS, (clamp(m, -1, 1) + 1) / 2);
+export const moodColor = (m = 0) => ramp(MOOD_STOPS, (clamp(m * 1.7, -1, 1) + 1) / 2);
 
 /** Buzz 0..1: clear to deep wine, with the drunk tiers sitting in the top half. */
 export const BUZZ_STOPS = ["#e7e3d6", "#e8c46a", "#d9822b", "#a8322a", "#5a1424"];

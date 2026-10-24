@@ -36,8 +36,8 @@
 .tp-key span { display: inline-flex; align-items: center; gap: 5px; }
 .tp-key i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; border: 1px solid #5b4533; }
 .tp-key em { margin-left: auto; font-style: normal; }
-.tp-counter { display: flex; gap: 22px; padding: 4px 18px 8px; overflow-x: auto; scrollbar-width: none; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
-.tp-counter b { color: var(--foam-dim); font-weight: 600; margin-right: 4px; }
+.tp .tp-counter { display: flex; gap: 22px; padding: 4px 18px 8px; overflow-x: auto; scrollbar-width: none; color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.tp .tp-counter b { color: var(--foam-dim); font-weight: 600; margin-right: 4px; }
 
 /* the wall */
 .tp-wall { flex: 1; min-height: 0; display: grid; grid-auto-flow: column; grid-auto-columns: 308px; grid-template-rows: minmax(0, 1fr); align-items: start; gap: 12px; padding: 8px 18px 16px; overflow-x: auto; scrollbar-width: thin; scrollbar-color: #4a3626 transparent; }

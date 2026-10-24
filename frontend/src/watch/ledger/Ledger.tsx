@@ -8,6 +8,7 @@ import { fmtDayTime, fmtTime } from "../../util";
 import { eventKind, plain } from "../shared/events";
 import { tint, ZONE_LABEL } from "../shared/scales";
 import { useSlow } from "../shared/useSlow";
+import { selPresence, useThrottled } from "../shared/useThrottled";
 import { useWatch } from "../shared/useTonight";
 import { Detail } from "./Detail";
 import { buildNight, type Person } from "./model";
@@ -67,7 +68,7 @@ export default function Ledger() {
   const tonight = useStore((s) => s.tonight);
   const clock = useStore((s) => s.clock);
   const people = useStore((s) => s.people);
-  const presence = useStore((s) => s.presence);
+  const presence = useThrottled(selPresence, 1000);
   const profileId = useStore((s) => s.profileId);
   const openProfile = useStore((s) => s.openProfile);
   const openThreadPane = useStore((s) => s.openThreadPane);
@@ -111,11 +112,14 @@ export default function Ledger() {
   }, [night, people, presence, sort, hereOnly]);
 
   const t0 = night ? (range === "recent" ? Math.max(night.t0, now - 2 * HOUR) : night.t0) : now - 2 * HOUR;
-  const t1 = Math.max(now, t0 + 2 * HOUR);
+  const lastSample = night ? night.samples[night.samples.length - 1] + night.step : t0;
+  // While the doors are shut this is last night's sheet: end it where the night ended.
+  const t1 = Math.max(clock?.open === false ? lastSample : now, t0 + 2 * HOUR);
   const innerW = Math.max(200, w - RIGHT);
   const x = useMemo(() => (t: number) => ((t - t0) / (t1 - t0)) * innerW, [t0, t1, innerW]);
   const hours: number[] = [];
-  for (let t = Math.ceil(t0 / HOUR) * HOUR; t <= t1 && hours.length < 48; t += HOUR) hours.push(t);
+  const stride = Math.max(1, Math.ceil(70 / (innerW / ((t1 - t0) / HOUR))));
+  for (let t = Math.ceil(t0 / HOUR) * HOUR, i = 0; t <= t1 && hours.length < 48; t += HOUR, i++) if (i % stride === 0) hours.push(t);
   const marks = (tonight?.events ?? []).flatMap((e) => {
     const k = eventKind(e.text);
     return k === "flag" || k === "alert" ? [{ t: new Date(e.sim_ts).getTime(), k, text: plain(e.text) }] : [];

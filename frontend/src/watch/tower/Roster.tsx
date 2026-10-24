@@ -4,7 +4,7 @@ import type { Guest } from "../shared/useRoom";
 
 const worthALook = (g: Guest) => {
   const p = g.presence;
-  return !g.bartender && (!!p.need || !!p.cut_off || p.tier === "drunk" || p.tier === "wasted" || (p.battery ?? 1) < 0.25 || (p.mood ?? 0) < -0.3);
+  return !g.bartender && (!!p.cut_off || p.tier === "drunk" || p.tier === "wasted" || (p.battery ?? 1) < 0.25 || (p.mood ?? 0) < -0.3);
 };
 
 const why = (g: Guest): string => {

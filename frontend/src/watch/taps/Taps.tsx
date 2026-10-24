@@ -7,7 +7,7 @@ import { actionText } from "../shared/text";
 import { fmtDayTime } from "../../util";
 import { onColor } from "../shared/scales";
 import { useLive, placeOf, type Live } from "../shared/useLive";
-import { useRoom } from "../shared/useRoom";
+import { useRoom, type Guest } from "../shared/useRoom";
 import { useWatch } from "../shared/useTonight";
 import { Where } from "./Where";
 import { Slide } from "./Slide";
@@ -37,15 +37,15 @@ function Mark() {
   );
 }
 
-function Column({ l, stale, starred, onStar, onPerson }: {
+function Column({ l, guests, stale, starred, onStar, onPerson }: {
   l: Live;
+  guests: Guest[];
   stale: boolean;
   starred: boolean;
   onStar: () => void;
   onPerson: (id: string) => void;
 }) {
   const people = useStore((s) => s.people);
-  const guests = useRoom();
   const t = l.thread;
   const band = bandOf(t.topic);
   const members = guests.filter((g) => g.presence.thread_id === t.id);
@@ -101,6 +101,7 @@ function Column({ l, stale, starred, onStar, onPerson }: {
 export default function Taps() {
   useWatch();
   const live = useLive();
+  const guests = useRoom();
   const clock = useStore((s) => s.clock);
   const banner = useStore((s) => s.banner);
   const openProfile = useStore((s) => s.openProfile);
@@ -170,7 +171,7 @@ export default function Taps() {
       )}
       <main className="tp-wall">
         {shown.map((l) => (
-          <Column key={l.thread.id} l={l} stale={isStale(l)} starred={stars.has(l.thread.id)} onStar={() => toggleStar(l.thread.id)} onPerson={(id) => void openProfile(id)} />
+          <Column key={l.thread.id} l={l} guests={guests} stale={isStale(l)} starred={stars.has(l.thread.id)} onStar={() => toggleStar(l.thread.id)} onPerson={(id) => void openProfile(id)} />
         ))}
         {!shown.length && (
           <p className="tp-empty">{onlyStars ? "Nothing starred is still talking." : clock?.open ? "No one is talking yet. The first guests are sitting down." : "Closed. The taps are quiet."}</p>

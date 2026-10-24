@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useStore } from "../../store";
+import { selPresence, useThrottled } from "./useThrottled";
 import { placeAll, type Spot } from "../../taproom/layout";
 import type { Person, Presence } from "../../types";
 
@@ -15,7 +16,7 @@ export interface Guest {
 /** Everyone in the taproom right now: who they are, how they feel, and where the floor plan puts them. */
 export function useRoom(): Guest[] {
   const people = useStore((s) => s.people);
-  const presence = useStore((s) => s.presence);
+  const presence = useThrottled(selPresence, 400);
   const onShift = useStore((s) => s.clock?.on_shift);
   return useMemo(() => {
     const list = Object.values(presence).filter((p) => people[p.id]);

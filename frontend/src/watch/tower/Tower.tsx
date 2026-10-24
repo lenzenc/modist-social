@@ -98,6 +98,26 @@ export default function Tower() {
   }, [guests, selected, tracked]);
 
   const ended = useMemo(() => new Set(followed.filter((id) => !live.some((l) => l.thread.id === id))), [followed, live]);
+
+  // A conversation you were listening to ends: leave it up for a moment to finish reading, then swap in the liveliest one you aren't hearing.
+  const liveRef = useRef(live);
+  liveRef.current = live;
+  const endedKey = [...ended].join(",");
+  useEffect(() => {
+    if (!endedKey) return;
+    const gone = new Set(endedKey.split(",").map(Number));
+    const timer = setTimeout(() => {
+      setFollowed((cur) => {
+        const keep = cur.filter((id) => !gone.has(id));
+        const fresh = liveRef.current
+          .filter((l) => l.thread.kind === "chat" && l.msgs.length > 1 && !keep.includes(l.thread.id))
+          .slice(0, Math.max(0, 2 - keep.length))
+          .map((l) => l.thread.id);
+        return [...keep, ...fresh];
+      });
+    }, 12_000);
+    return () => clearTimeout(timer);
+  }, [endedKey]);
   const heated = live.filter((l) => l.thread.tension && l.thread.tension >= 0.6).length;
   const patrons = guests.filter((g) => !g.bartender).length;
 
